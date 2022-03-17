@@ -57,6 +57,108 @@ def create_log(path, level):
     return logging
 
 
+def load_trajectory(trajectory_file, topology_file, mask):
+    """
+    Load a trajectory and apply a mask if mask argument is set.
+
+    :param trajectory_file: the trajectory file path.
+    :type trajectory_file: str
+    :param topology_file: the topology file path.
+    :type topology_file: str
+    :param mask: the mask.
+    :type mask: str
+    :return: the loaded trajectory.
+    :rtype: pt.Trajectory
+    """
+    traj = pt.iterload(trajectory_file, topology_file)
+    logging.info("Load trajectory file:")
+    if mask is not None:
+        logging.info(f"\tapplied mask:\t{mask}")
+        traj = traj[mask]
+    logging.info(f"\tFrames:\t\t{traj.n_frames}")
+    logging.info(f"\tMolecules:\t{traj.topology.n_mols}")
+    logging.info(f"\tResidues:\t{traj.topology.n_residues}")
+    logging.info(f"\tAtoms:\t\t{traj.topology.n_atoms}")
+
+    return traj
+
+
+def rmsd(traj, out_dir, out_basename, mask):
+    """
+    Compute the Root Mean Square Deviation and create the plot.
+
+    :param traj: the trajectory.
+    :type traj: pt.Trajectory
+    :param out_dir: the output directory path/
+    :type out_dir: str
+    :param out_basename: the plot basename.
+    :type out_basename: str
+    :param mask: the selection mask.
+    :type mask: str
+    :return: the trajectory data.
+    :rtype: pd.DataFrame
+    """
+    rmsd_traj = pt.rmsd(traj, ref=0)
+    source = pd.DataFrame({"frames": range(traj.n_frames), "RMSD": rmsd_traj})
+    rmsd_plot = alt.Chart(data=source).mark_line().encode(
+        x=alt.X("frames", title="Frame"),
+        y=alt.Y("RMSD", title="RMSD")
+    ).properties(
+        title={
+            "text": out_basename,
+            "subtitle": [f"Mask {mask}" if mask else ""],
+            "subtitleColor": "gray"
+        },
+        width=600,
+        height=400
+    )
+    out_path = os.path.join(out_dir, f"RMSD_{out_basename}_{mask}.html" if mask else f"RMSD_{out_basename}.html")
+    rmsd_plot.save(out_path)
+    logging.info(f"RMSD plot saved: {out_path}")
+
+    return source
+
+
+def hydrogen_bonds(traj, out_dir, out_basename):
+
+    h_bonds = pt.hbond(traj)
+    dist = pt.distance(traj, h_bonds.get_amber_mask()[0])
+    print(h_bonds.data)  # 1: have hbond; 0: does not have hbond
+    pattern_hb = re.compile("\\D{3}(\\d+).+-\\D{3}(\\d+)")
+    idx = 0
+    h_bonds_data = {"frames": range(traj.n_frames)}
+    for h_bond in h_bonds.data:
+        if h_bond.key != "total_solute_hbonds":
+            match = pattern_hb.search(h_bond.key)
+            if match:
+                if match.group(1) == match.group(2):
+                    logging.debug(f"atom contact from same residue ({h_bond.key}), contacts skipped")
+                else:
+                    h_bonds_data[h_bond.key] = dist[idx]
+            idx += 1
+    df = pd.DataFrame(h_bonds_data)
+    # plot all the contacts
+    # todo: code angstrom
+    angstrom_str = r"($\AA$)"
+    for contact_id in df.columns[1:]:
+        source = df[["frames", contact_id]]
+        contact_plot = alt.Chart(data=source).mark_circle().encode(
+            x=alt.X("frames", title="Frame"),
+            y=alt.Y(contact_id, title=f"contact distance {contact_id} {angstrom_str}")
+        ).properties(
+            title={
+                "text": f"{contact_id} distance during molecular dynamics simulation"
+            },
+            width=600,
+            height=400
+        )
+        out_path = os.path.join(out_dir, f"contact_{out_basename}_{contact_id}.html")
+        contact_plot.save(out_path)
+    logging.info(f"Contacts plots saved in: {out_dir}")
+
+    return df
+
+
 if __name__ == "__main__":
     descr = f"""
     {os.path.basename(__file__)} v. {__version__}
@@ -67,7 +169,9 @@ if __name__ == "__main__":
 
     Distributed on an "AS IS" basis without warranties or conditions of any kind, either express or implied.
 
-    From a molecular dynamics trajectory file, select the residues to follow.
+    From a molecular dynamics trajectory file and eventually a mask selection 
+    (https://amber-md.github.io/pytraj/latest/atom_mask_selection.html#examples-atom-mask-selection-for-trajectory), 
+    perform trajectory analysis.
     """
     parser = argparse.ArgumentParser(description=descr, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-o", "--out", required=True, type=str, help="the path to the output directory.")
@@ -97,42 +201,24 @@ if __name__ == "__main__":
     logging.info(f"version: {__version__}")
     logging.info(f"CMD: {' '.join(sys.argv)}")
 
-    traj = pt.iterload(args.input, args.topology)
-    if args.mask:
-        traj = traj[args.mask]
+    # load the trajectory
+    trajectory = load_trajectory(args.input, args.topology, args.mask)
+    # compute RMSD and create the plot
+    basename = os.path.splitext(os.path.basename(args.input))[0]
+    data_traj = rmsd(trajectory, args.out, basename, args.mask)
 
-    print(traj)
-    rmsd = pt.rmsd(traj, ref=0)
-    print(dir(traj))
-    print(traj.n_frames)
-    source = pd.DataFrame({"frames": range(traj.n_frames), "RMSD": rmsd})
-    print(source)
-    rmsd_plot = alt.Chart(data=source).mark_line().encode(
-        x=alt.X("frames", title="Frame"),
-        y=alt.Y("RMSD", title="RMSD")
-    )
-    out_path_plot = os.path.join(args.out, f"RMSD_{os.path.splitext(os.path.basename(args.input))[0]}.html")
-    rmsd_plot.save(out_path_plot)
+    # find Hydrogen bonds
+    data_h_bonds = hydrogen_bonds(trajectory, args.out, basename)
+    print(data_h_bonds)
 
-    # # find Hydrogen bonds
-    # hb = pt.hbond(traj)
-    # distance_masks = hb.get_amber_mask()[0]
-    # print(f"hbond distance mask: {distance_masks} \n")
-    # i = 0
-    # for dist_mask in sorted(distance_masks):
-    #     i += 1
-    #     print(f"{i}:\t{dist_mask}")
-    # angle_mask = hb.get_amber_mask()[1]
-    # print(f'hbond angle mask: {angle_mask} \n')
-    #
-    # print("hbond data\t1: have hbond; 0: does not have hbond")
-    # print(hb.data)  # 1: have hbond; 0: does not have hbond
-    #
+
+    # pd.DataFrame.to_excel(hb.data.to_dataframe, os.path.join(args.out, "data.xlsx"))
+
     # # compute distance between donor-acceptor for ALL frames (also include frames that do not form hbond)
-    # dist = pt.distance(traj, hb.get_amber_mask()[0])
-    # print('all hbond distances: ', dist)
+
+
     #
-    # angle = pt.angle(traj, hb.get_amber_mask()[1])
+    # angle = pt.angle(trajectory, hb.get_amber_mask()[1])
     # print(f"angles: {angle}")
 
     # distances_plot = alt.Chart(data=source).mark_rect().encode(
