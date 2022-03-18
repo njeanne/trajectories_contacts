@@ -112,14 +112,14 @@ def rmsd(traj, out_dir, out_basename, mask):
         width=600,
         height=400
     )
-    out_path = os.path.join(out_dir, f"RMSD_{out_basename}_{mask}.html" if mask else f"RMSD_{out_basename}.html")
+    out_path = os.path.join(out_dir, f"RMSD_{out_basename}_{mask}.svg" if mask else f"RMSD_{out_basename}.svg")
     rmsd_plot.save(out_path)
     logging.info(f"RMSD plot saved: {out_path}")
 
     return source
 
 
-def hydrogen_bonds(traj, out_dir, out_basename):
+def hydrogen_bonds(traj, out_dir, out_basename, mask):
 
     h_bonds = pt.hbond(traj)
     dist = pt.distance(traj, h_bonds.get_amber_mask()[0])
@@ -137,23 +137,30 @@ def hydrogen_bonds(traj, out_dir, out_basename):
             idx += 1
     df = pd.DataFrame(h_bonds_data)
     # plot all the contacts
-    # todo: code angstrom
-    angstrom_str = r"($\AA$)"
+    plots = []
+    nb_plots = 0
     for contact_id in df.columns[1:]:
         source = df[["frames", contact_id]]
         contact_plot = alt.Chart(data=source).mark_circle().encode(
             x=alt.X("frames", title="Frame"),
-            y=alt.Y(contact_id, title=f"contact distance {contact_id} {angstrom_str}")
+            y=alt.Y(contact_id, title="distance (\u212B)")
         ).properties(
-            title={
-                "text": f"{contact_id} distance during molecular dynamics simulation"
-            },
-            width=600,
-            height=400
+            title={"text": f"Contact: {contact_id}"},
+            width=400,
+            height=260
         )
-        out_path = os.path.join(out_dir, f"contact_{out_basename}_{contact_id}.html")
-        contact_plot.save(out_path)
-    logging.info(f"Contacts plots saved in: {out_dir}")
+        # add a threshold line
+        threshold = alt.Chart().mark_rule(color="red").encode(y=alt.datum(3.0))
+        contact_plot = contact_plot + threshold
+        nb_plots += 1
+        plots.append(contact_plot)
+
+    contacts_plots = alt.concat(*plots, columns=3)
+
+    out_path = os.path.join(out_dir,
+                            f"contacts_{out_basename}_{mask}.svg" if mask else f"contacts__{out_basename}.svg")
+    contacts_plots.save(out_path)
+    logging.info(f"{nb_plots} contacts plots saved to: {out_path}")
 
     return df
 
@@ -207,22 +214,5 @@ if __name__ == "__main__":
     data_traj = rmsd(trajectory, args.out, basename, args.mask)
 
     # find Hydrogen bonds
-    data_h_bonds = hydrogen_bonds(trajectory, args.out, basename)
+    data_h_bonds = hydrogen_bonds(trajectory, args.out, basename, args.mask)
     print(data_h_bonds)
-
-
-    # pd.DataFrame.to_excel(hb.data.to_dataframe, os.path.join(args.out, "data.xlsx"))
-
-    # # compute distance between donor-acceptor for ALL frames (also include frames that do not form hbond)
-
-
-    #
-    # angle = pt.angle(trajectory, hb.get_amber_mask()[1])
-    # print(f"angles: {angle}")
-
-    # distances_plot = alt.Chart(data=source).mark_rect().encode(
-    #     x=alt.X(chain1.replace(".", "_"), title=chain1),
-    #     y=alt.Y(chain2.replace(".", "_"), title=chain2, sort=None),
-    #     color=alt.Color("minimal_contact_distance:Q", title="Distance (Angstroms)", sort="descending",
-    #                     scale=alt.Scale(scheme="yelloworangered"))
-    # )
