@@ -102,10 +102,10 @@ def rmsd(traj, out_dir, out_basename, mask):
     source = pd.DataFrame({"frames": range(traj.n_frames), "RMSD": rmsd_traj})
     rmsd_plot = alt.Chart(data=source).mark_line().encode(
         x=alt.X("frames", title="Frame"),
-        y=alt.Y("RMSD", title="RMSD")
+        y=alt.Y("RMSD", title="RMSD (\u212B)")
     ).properties(
         title={
-            "text": out_basename,
+            "text": f"Root Mean Square Deviation: {out_basename}",
             "subtitle": [f"Mask {mask}" if mask else ""],
             "subtitleColor": "gray"
         },
@@ -123,7 +123,6 @@ def hydrogen_bonds(traj, out_dir, out_basename):
 
     h_bonds = pt.hbond(traj)
     dist = pt.distance(traj, h_bonds.get_amber_mask()[0])
-    print(h_bonds.data)  # 1: have hbond; 0: does not have hbond
     pattern_hb = re.compile("\\D{3}(\\d+).+-\\D{3}(\\d+)")
     idx = 0
     h_bonds_data = {"frames": range(traj.n_frames)}
