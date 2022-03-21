@@ -83,7 +83,7 @@ def load_trajectory(trajectory_file, topology_file, mask):
     return traj
 
 
-def rmsd(traj, out_dir, out_basename, mask):
+def rmsd(traj, out_dir, out_basename, mask, format_output):
     """
     Compute the Root Mean Square Deviation and create the plot.
 
@@ -95,6 +95,8 @@ def rmsd(traj, out_dir, out_basename, mask):
     :type out_basename: str
     :param mask: the selection mask.
     :type mask: str
+    :param format_output: the output format for the plots.
+    :type format_output: bool
     :return: the trajectory data.
     :rtype: pd.DataFrame
     """
@@ -106,21 +108,37 @@ def rmsd(traj, out_dir, out_basename, mask):
     ).properties(
         title={
             "text": f"Root Mean Square Deviation: {out_basename}",
-            "subtitle": [f"Mask {mask}" if mask else ""],
+            "subtitle": [f"Mask:\t{mask}" if mask else ""],
             "subtitleColor": "gray"
         },
         width=600,
         height=400
     )
-    out_path = os.path.join(out_dir, f"RMSD_{out_basename}_{mask}.svg" if mask else f"RMSD_{out_basename}.svg")
+    basename_plot_path = os.path.join(out_dir, f"RMSD_{out_basename}_{mask}" if mask else f"RMSD_{out_basename}")
+    out_path = f"{basename_plot_path}.{format_output}"
     rmsd_plot.save(out_path)
     logging.info(f"RMSD plot saved: {out_path}")
 
     return source
 
 
-def hydrogen_bonds(traj, out_dir, out_basename, mask):
+def hydrogen_bonds(traj, out_dir, out_basename, mask, format_output):
+    """
+    Get the polar bonds (hydrogen) between the different atoms of the protein during the molecular dynamics simulation.
 
+    :param traj: the trajectory.
+    :type traj: pt.Trajectory
+    :param out_dir: the output directory path/
+    :type out_dir: str
+    :param out_basename: the plot basename.
+    :type out_basename: str
+    :param mask: the selection mask.
+    :type mask: str
+    :param format_output: the output format for the plots.
+    :type format_output: bool
+    :return: the dataframe of the polar contacts.
+    :rtype: pd.DataFrame
+    """
     h_bonds = pt.hbond(traj)
     dist = pt.distance(traj, h_bonds.get_amber_mask()[0])
     pattern_hb = re.compile("\\D{3}(\\d+).+-\\D{3}(\\d+)")
@@ -156,9 +174,9 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask):
         plots.append(contact_plot)
 
     contacts_plots = alt.concat(*plots, columns=3)
-
-    out_path = os.path.join(out_dir,
-                            f"contacts_{out_basename}_{mask}.svg" if mask else f"contacts__{out_basename}.svg")
+    basename_plot_path = os.path.join(out_dir,
+                                      f"contacts_{out_basename}_{mask}" if mask else f"contacts_{out_basename}")
+    out_path = f"{basename_plot_path}.{format_output}"
     contacts_plots.save(out_path)
     logging.info(f"{nb_plots} contacts plots saved to: {out_path}")
 
@@ -184,6 +202,8 @@ if __name__ == "__main__":
     parser.add_argument("-t", "--topology", required=True, type=str,
                         help="the path to the molecular dynamics topology file.")
     parser.add_argument("-m", "--mask", required=False, type=str, help="the mask selection.")
+    parser.add_argument("-f", "--output-format", required=False, choices=["svg", "png", "html", "pdf"], default="html",
+                        help="the output plots format, if not used the default is HTML.")
     parser.add_argument("-l", "--log", required=False, type=str,
                         help="the path for the log file. If this option is skipped, the log file is created in the "
                              "output directory.")
@@ -211,8 +231,8 @@ if __name__ == "__main__":
     trajectory = load_trajectory(args.input, args.topology, args.mask)
     # compute RMSD and create the plot
     basename = os.path.splitext(os.path.basename(args.input))[0]
-    data_traj = rmsd(trajectory, args.out, basename, args.mask)
+    data_traj = rmsd(trajectory, args.out, basename, args.mask, args.output_format)
 
     # find Hydrogen bonds
-    data_h_bonds = hydrogen_bonds(trajectory, args.out, basename, args.mask)
+    data_h_bonds = hydrogen_bonds(trajectory, args.out, basename, args.mask, args.output_format)
     print(data_h_bonds)
