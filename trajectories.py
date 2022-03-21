@@ -139,20 +139,24 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, format_output):
     :return: the dataframe of the polar contacts.
     :rtype: pd.DataFrame
     """
+    logging.info("Search for polar contacts:")
     h_bonds = pt.hbond(traj)
     dist = pt.distance(traj, h_bonds.get_amber_mask()[0])
     pattern_hb = re.compile("\\D{3}(\\d+).+-\\D{3}(\\d+)")
     idx = 0
+    nb_intra_residue_contacts = 0
     h_bonds_data = {"frames": range(traj.n_frames)}
     for h_bond in h_bonds.data:
         if h_bond.key != "total_solute_hbonds":
             match = pattern_hb.search(h_bond.key)
             if match:
                 if match.group(1) == match.group(2):
-                    logging.debug(f"atom contact from same residue ({h_bond.key}), contacts skipped")
+                    nb_intra_residue_contacts += 1
+                    logging.debug(f"\t atom contact from same residue ({h_bond.key}), contacts skipped")
                 else:
                     h_bonds_data[h_bond.key] = dist[idx]
             idx += 1
+    logging.info(f"\t{nb_intra_residue_contacts} intra residues atoms contacts discarded.")
     df = pd.DataFrame(h_bonds_data)
     # plot all the contacts
     plots = []
@@ -178,7 +182,7 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, format_output):
                                       f"contacts_{out_basename}_{mask}" if mask else f"contacts_{out_basename}")
     out_path = f"{basename_plot_path}.{format_output}"
     contacts_plots.save(out_path)
-    logging.info(f"{nb_plots} contacts plots saved to: {out_path}")
+    logging.info(f"\t{nb_plots} inter residues atoms contacts saved to plot: {out_path}")
 
     return df
 
