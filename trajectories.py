@@ -25,6 +25,21 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "references"))
 import polarPairs
 
 
+def restricted_float(float_to_inspect):
+    """Inspect if a float is between 0.0 and 100.0
+
+    :param float_to_inspect: the float to inspect
+    :type float_to_inspect: float
+    :raises ArgumentTypeError: is not between 0.0 and 100.0
+    :return: the float value if float_to_inspect is between 0.0 and 100.0
+    :rtype: float
+    """
+    x = float(float_to_inspect)
+    if x < 0.0 or x > 100.0:
+        raise argparse.ArgumentTypeError("{} not in range [0.0, 100.0]".format(x))
+    return x
+
+
 def create_log(path, level):
     """Create the log as a text file and as a stream.
 
@@ -122,7 +137,44 @@ def rmsd(traj, out_dir, out_basename, mask, format_output):
     return source
 
 
-def hydrogen_bonds(traj, out_dir, out_basename, mask, threshold, format_output):
+def sort_contacts(contact_names, pattern):
+    """
+    Get the order of the contacts on the first residue then on the second one
+    :param contact_names: the contacts identifiers.
+    :type contact_names: KeysView[Union[str, Any]]
+    :parm pattern: the regex pattern to extract the residues positions of the atoms contacts.
+    :type pattern: re.pattern
+    :return: the ordered list of contacts.
+    :rtype: list
+    """
+    tmp = {}
+    ordered_contacts_ids = []
+    for contact_name in contact_names:
+        if contact_name == "frames":
+            ordered_contacts_ids.append(contact_name)
+        else:
+            match = pattern.search(contact_name)
+            if match:
+                if int(match.group(1)) in tmp:
+                    if int(match.group(2)) in tmp[int(match.group(1))]:
+                        tmp[int(match.group(1))][int(match.group(2))].append(contact_name)
+                    else:
+                        tmp[int(match.group(1))][int(match.group(2))] = [contact_name]
+                else:
+                    tmp[int(match.group(1))] = {int(match.group(2)): [contact_name]}
+            else:
+                logging.error(f"no match for {pattern.pattern} in {contact_name}")
+                sys.exit(1)
+
+    for key1 in sorted(tmp):
+        for key2 in sorted(tmp[key1]):
+            for contact_name in sorted(tmp[key1][key2]):
+                ordered_contacts_ids.append(contact_name)
+
+    return ordered_contacts_ids
+
+
+def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_thr_2nd_half, format_output):
     """
     Get the polar bonds (hydrogen) between the different atoms of the protein during the molecular dynamics simulation.
 
@@ -134,32 +186,54 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, threshold, format_output):
     :type out_basename: str
     :param mask: the selection mask.
     :type mask: str
-    :param threshold: the threshold distance in Angstroms for contacts.
-    :type threshold: float
+    :param dist_thr: the threshold distance in Angstroms for contacts.
+    :type dist_thr: float
+    :param contacts_frame_thr_2nd_half: the minimal percentage of contacts for atoms contacts of different residues in the
+    second half of the simulation.
+    :type contacts_frame_thr_2nd_half: float
     :param format_output: the output format for the plots.
     :type format_output: bool
     :return: the dataframe of the polar contacts.
     :rtype: pd.DataFrame
     """
     logging.info("Search for polar contacts:")
-    h_bonds = pt.hbond(traj, distance=threshold)
+    h_bonds = pt.hbond(traj, distance=dist_thr)
+    nb_total_contacts = len(h_bonds.data) - 1
     dist = pt.distance(traj, h_bonds.get_amber_mask()[0])
     pattern_hb = re.compile("\\D{3}(\\d+).+-\\D{3}(\\d+)")
-    idx = 0
+
     nb_intra_residue_contacts = 0
+    nb_frames_contacts_2nd_half_thr = 0
     h_bonds_data = {"frames": range(traj.n_frames)}
+    idx = 0
     for h_bond in h_bonds.data:
         if h_bond.key != "total_solute_hbonds":
             match = pattern_hb.search(h_bond.key)
             if match:
                 if match.group(1) == match.group(2):
                     nb_intra_residue_contacts += 1
-                    logging.debug(f"\t atom contact from same residue ({h_bond.key}), contacts skipped")
+                    logging.debug(f"\t {h_bond.key}: atoms contact from same residue, contact skipped")
                 else:
-                    h_bonds_data[h_bond.key] = dist[idx]
+                    # get the second half of the simulation
+                    second_half = dist[idx][int(len(dist[idx])/2):]
+                    # retrieve only the contacts >= percentage threshold in the second half of the simulation
+                    pct_contacts = len(second_half[second_half <= dist_thr]) / len(second_half) * 100
+                    if pct_contacts >= contacts_frame_thr_2nd_half:
+                        h_bonds_data[h_bond.key] = dist[idx]
+                    else:
+                        nb_frames_contacts_2nd_half_thr += 1
+                        logging.debug(f"\t {h_bond.key}: {pct_contacts:.1f}% of the frames with contacts under the "
+                                      f"threshold of {contacts_frame_thr_2nd_half:.1f}% for the second half of the "
+                                      f"simulation, contact skipped")
             idx += 1
-    logging.info(f"\t{nb_intra_residue_contacts} intra residues atoms contacts discarded.")
+    logging.info(f"\t{nb_intra_residue_contacts}/{nb_total_contacts} intra residues atoms contacts discarded.")
+    logging.info(f"\t{nb_frames_contacts_2nd_half_thr}/{nb_total_contacts} inter residues atoms contacts discarded "
+                 f"with number of contacts frames under the threshold of {contacts_frame_thr_2nd_half:.1f}% for the "
+                 f"second half of the simulation.")
+    ordered_columns = sort_contacts(h_bonds_data.keys(), pattern_hb)
     df = pd.DataFrame(h_bonds_data)
+    df = df[ordered_columns]
+
     # plot all the contacts
     plots = []
     nb_plots = 0
@@ -174,17 +248,22 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, threshold, format_output):
             height=260
         )
         # add a distance threshold line
-        h_line = alt.Chart().mark_rule(color="red").encode(y=alt.datum(threshold))
+        h_line = alt.Chart().mark_rule(color="red").encode(y=alt.datum(dist_thr))
         contact_plot = contact_plot + h_line
         nb_plots += 1
         plots.append(contact_plot)
 
+    # merge the plots by row of 3 and save them
     contacts_plots = alt.concat(*plots, columns=3)
-    basename_plot_path = os.path.join(out_dir,
-                                      f"contacts_{out_basename}_{mask}" if mask else f"contacts_{out_basename}")
-    out_path = f"{basename_plot_path}.{format_output}"
-    contacts_plots.save(out_path)
-    logging.info(f"\t{nb_plots} inter residues atoms contacts saved to plot: {out_path}")
+
+    # save the plot and the contacts list
+    basename_path = os.path.join(out_dir, f"contacts_{out_basename}_{mask}" if mask else f"contacts_{out_basename}")
+    out_path_plot = f"{basename_path}.{format_output}"
+    contacts_plots.save(out_path_plot)
+    logging.info(f"\t{nb_plots}/{nb_total_contacts} inter residues atoms contacts saved to plot: {out_path_plot}")
+    with open(f"{basename_path}.txt", "w") as out_contacts:
+        for contact_id in df.columns[1:]:
+            out_contacts.write(f"{contact_id}\n")
 
     return df
 
@@ -201,7 +280,8 @@ if __name__ == "__main__":
 
     From a molecular dynamics trajectory file and eventually a mask selection 
     (https://amber-md.github.io/pytraj/latest/atom_mask_selection.html#examples-atom-mask-selection-for-trajectory), 
-    perform trajectory analysis.
+    perform trajectory analysis. The script computes the Root Mean Square Deviation (RMSD) and the hydrogen contacts 
+    between atoms of two different residues.
     """
     parser = argparse.ArgumentParser(description=descr, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-o", "--out", required=True, type=str, help="the path to the output directory.")
@@ -212,6 +292,9 @@ if __name__ == "__main__":
                         help="the output plots format, if not used the default is HTML.")
     parser.add_argument("-d", "--distance-contacts", required=False, type=float, default=3.0,
                         help="the contacts distances threshold, default is 3.0 Angstroms.")
+    parser.add_argument("-s", "--second-half-percent", required=False, type=restricted_float, default=20.0,
+                        help="the minimal percentage of frames which make contact between 2 atoms of different "
+                             "residues in the second half of the molecular dynamics simulation, default is 20%%.")
     parser.add_argument("-l", "--log", required=False, type=str,
                         help="the path for the log file. If this option is skipped, the log file is created in the "
                              "output directory.")
@@ -234,6 +317,9 @@ if __name__ == "__main__":
 
     logging.info(f"version: {__version__}")
     logging.info(f"CMD: {' '.join(sys.argv)}")
+    logging.info(f"maximal threshold for atoms contacts distance: {args.distance_contacts} \u212B")
+    logging.info(f"minimal threshold for number of atoms contacts between two different residues: "
+                 f"{args.second_half_percent:.1f}%")
 
     # load the trajectory
     trajectory = load_trajectory(args.input, args.topology, args.mask)
@@ -242,4 +328,5 @@ if __name__ == "__main__":
     data_traj = rmsd(trajectory, args.out, basename, args.mask, args.output_format)
 
     # find Hydrogen bonds
-    data_h_bonds = hydrogen_bonds(trajectory, args.out, basename, args.mask, args.distance_contacts, args.output_format)
+    data_h_bonds = hydrogen_bonds(trajectory, args.out, basename, args.mask, args.distance_contacts,
+                                  args.second_half_percent, args.output_format)
