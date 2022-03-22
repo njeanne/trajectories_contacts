@@ -137,6 +137,31 @@ def rmsd(traj, out_dir, out_basename, mask, format_output):
     return source
 
 
+def sort_contacts(contact_ids):
+    """
+    Get the order of the contacts on the first residue then on the second one
+    :param contact_ids: the contacts identifiers.
+    :type contact_ids: KeysView[Union[str, Any]]
+    :return: the ordered list of contacts.
+    :rtype: list
+    """
+    pattern = re.compile("\D{3}(\d+)_.+-\D{3}(\d+)")
+
+    tmp = {}
+    ordered_contacts_ids = []
+    for contact_id in contact_ids:
+        if contact_id == "frames":
+            ordered_contacts_ids.append(contact_id)
+        else:
+            match = pattern.search(contact_id)
+            if match:
+                tmp[int(f"{match.group(1)}{match.group(2)}")] = contact_id
+
+    for key in sorted(tmp):
+        ordered_contacts_ids.append(tmp[key])
+    return ordered_contacts_ids
+
+
 def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, second_half_pct_thr, format_output):
     """
     Get the polar bonds (hydrogen) between the different atoms of the protein during the molecular dynamics simulation.
@@ -185,11 +210,13 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, second_half_pct_
                         logging.debug(f"\t atom contact under {second_half_pct_thr} second half threshold "
                                       f"({h_bond.key}), contacts skipped")
             idx += 1
+    ordered_columns = sort_contacts(h_bonds_data.keys())
     logging.info(f"\t{nb_intra_residue_contacts} intra residues atoms contacts discarded.")
     logging.info(f"\t{nb_contacts_2nd_part_simu_under_pct_thr} inter residues atoms contacts discarded with number of "
                  f"contacts under the percentage threshold of {second_half_pct_thr:.1f}% for the second half of the "
                  f"simulation.")
     df = pd.DataFrame(h_bonds_data)
+    df = df[ordered_columns]
     # plot all the contacts
     plots = []
     nb_plots = 0
