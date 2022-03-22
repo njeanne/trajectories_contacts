@@ -243,4 +243,3 @@ if __name__ == "__main__":
 
     # find Hydrogen bonds
     data_h_bonds = hydrogen_bonds(trajectory, args.out, basename, args.mask, args.distance_contacts, args.output_format)
-    print(data_h_bonds)
