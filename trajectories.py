@@ -137,32 +137,44 @@ def rmsd(traj, out_dir, out_basename, mask, format_output):
     return source
 
 
-def sort_contacts(contact_ids):
+def sort_contacts(contact_names, pattern):
     """
     Get the order of the contacts on the first residue then on the second one
-    :param contact_ids: the contacts identifiers.
-    :type contact_ids: KeysView[Union[str, Any]]
+    :param contact_names: the contacts identifiers.
+    :type contact_names: KeysView[Union[str, Any]]
+    :parm pattern: the regex pattern to extract the residues positions of the atoms contacts.
+    :type pattern: re.pattern
     :return: the ordered list of contacts.
     :rtype: list
     """
-    pattern = re.compile("\D{3}(\d+)_.+-\D{3}(\d+)")
-
     tmp = {}
     ordered_contacts_ids = []
-    for contact_id in contact_ids:
-        if contact_id == "frames":
-            ordered_contacts_ids.append(contact_id)
+    for contact_name in contact_names:
+        if contact_name == "frames":
+            ordered_contacts_ids.append(contact_name)
         else:
-            match = pattern.search(contact_id)
+            match = pattern.search(contact_name)
             if match:
-                tmp[int(f"{match.group(1)}{match.group(2)}")] = contact_id
+                if int(match.group(1)) in tmp:
+                    if int(match.group(2)) in tmp[int(match.group(1))]:
+                        tmp[int(match.group(1))][int(match.group(2))].append(contact_name)
+                    else:
+                        tmp[int(match.group(1))][int(match.group(2))] = [contact_name]
+                else:
+                    tmp[int(match.group(1))] = {int(match.group(2)): [contact_name]}
+            else:
+                logging.error(f"no match for {pattern.pattern} in {contact_name}")
+                sys.exit(1)
 
-    for key in sorted(tmp):
-        ordered_contacts_ids.append(tmp[key])
+    for key1 in sorted(tmp):
+        for key2 in sorted(tmp[key1]):
+            for contact_name in sorted(tmp[key1][key2]):
+                ordered_contacts_ids.append(contact_name)
+
     return ordered_contacts_ids
 
 
-def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, second_half_pct_thr, format_output):
+def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_thr_2nd_half, format_output):
     """
     Get the polar bonds (hydrogen) between the different atoms of the protein during the molecular dynamics simulation.
 
@@ -176,9 +188,9 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, second_half_pct_
     :type mask: str
     :param dist_thr: the threshold distance in Angstroms for contacts.
     :type dist_thr: float
-    :param second_half_pct_thr: the minimal percentage of contacts for atoms contacts of different residues in the
+    :param contacts_frame_thr_2nd_half: the minimal percentage of contacts for atoms contacts of different residues in the
     second half of the simulation.
-    :type second_half_pct_thr: float
+    :type contacts_frame_thr_2nd_half: float
     :param format_output: the output format for the plots.
     :type format_output: bool
     :return: the dataframe of the polar contacts.
@@ -186,37 +198,42 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, second_half_pct_
     """
     logging.info("Search for polar contacts:")
     h_bonds = pt.hbond(traj, distance=dist_thr)
+    nb_total_contacts = len(h_bonds.data) - 1
     dist = pt.distance(traj, h_bonds.get_amber_mask()[0])
     pattern_hb = re.compile("\\D{3}(\\d+).+-\\D{3}(\\d+)")
-    idx = 0
+
     nb_intra_residue_contacts = 0
-    nb_contacts_2nd_part_simu_under_pct_thr = 0
+    nb_frames_contacts_2nd_half_thr = 0
     h_bonds_data = {"frames": range(traj.n_frames)}
+    idx = 0
     for h_bond in h_bonds.data:
         if h_bond.key != "total_solute_hbonds":
             match = pattern_hb.search(h_bond.key)
             if match:
                 if match.group(1) == match.group(2):
                     nb_intra_residue_contacts += 1
-                    logging.debug(f"\t atom contact from same residue ({h_bond.key}), contacts skipped")
+                    logging.debug(f"\t {h_bond.key}: atoms contact from same residue, contact skipped")
                 else:
-                    # get the second part of the simulation
+                    # get the second half of the simulation
                     second_half = dist[idx][int(len(dist[idx])/2):]
                     # retrieve only the contacts >= percentage threshold in the second half of the simulation
-                    if (len(second_half[second_half <= dist_thr]) / len(second_half)) * 100 >= second_half_pct_thr:
+                    pct_contacts = len(second_half[second_half <= dist_thr]) / len(second_half) * 100
+                    if pct_contacts >= contacts_frame_thr_2nd_half:
                         h_bonds_data[h_bond.key] = dist[idx]
                     else:
-                        nb_contacts_2nd_part_simu_under_pct_thr += 1
-                        logging.debug(f"\t atom contact under {second_half_pct_thr} second half threshold "
-                                      f"({h_bond.key}), contacts skipped")
+                        nb_frames_contacts_2nd_half_thr += 1
+                        logging.debug(f"\t {h_bond.key}: {pct_contacts:.1f}% of the frames with contacts under the "
+                                      f"threshold of {contacts_frame_thr_2nd_half:.1f}% for the second half of the "
+                                      f"simulation, contact skipped")
             idx += 1
-    ordered_columns = sort_contacts(h_bonds_data.keys())
-    logging.info(f"\t{nb_intra_residue_contacts} intra residues atoms contacts discarded.")
-    logging.info(f"\t{nb_contacts_2nd_part_simu_under_pct_thr} inter residues atoms contacts discarded with number of "
-                 f"contacts under the percentage threshold of {second_half_pct_thr:.1f}% for the second half of the "
-                 f"simulation.")
+    logging.info(f"\t{nb_intra_residue_contacts}/{nb_total_contacts} intra residues atoms contacts discarded.")
+    logging.info(f"\t{nb_frames_contacts_2nd_half_thr}/{nb_total_contacts} inter residues atoms contacts discarded "
+                 f"with number of contacts frames under the threshold of {contacts_frame_thr_2nd_half:.1f}% for the "
+                 f"second half of the simulation.")
+    ordered_columns = sort_contacts(h_bonds_data.keys(), pattern_hb)
     df = pd.DataFrame(h_bonds_data)
     df = df[ordered_columns]
+
     # plot all the contacts
     plots = []
     nb_plots = 0
@@ -236,12 +253,17 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, second_half_pct_
         nb_plots += 1
         plots.append(contact_plot)
 
+    # merge the plots by row of 3 and save them
     contacts_plots = alt.concat(*plots, columns=3)
-    basename_plot_path = os.path.join(out_dir,
-                                      f"contacts_{out_basename}_{mask}" if mask else f"contacts_{out_basename}")
-    out_path = f"{basename_plot_path}.{format_output}"
-    contacts_plots.save(out_path)
-    logging.info(f"\t{nb_plots} inter residues atoms contacts saved to plot: {out_path}")
+
+    # save the plot and the contacts list
+    basename_path = os.path.join(out_dir, f"contacts_{out_basename}_{mask}" if mask else f"contacts_{out_basename}")
+    out_path_plot = f"{basename_path}.{format_output}"
+    contacts_plots.save(out_path_plot)
+    logging.info(f"\t{nb_plots}/{nb_total_contacts} inter residues atoms contacts saved to plot: {out_path_plot}")
+    with open(f"{basename_path}.txt", "w") as out_contacts:
+        for contact_id in df.columns[1:]:
+            out_contacts.write(f"{contact_id}\n")
 
     return df
 
