@@ -122,7 +122,7 @@ def rmsd(traj, out_dir, out_basename, mask, format_output):
     return source
 
 
-def hydrogen_bonds(traj, out_dir, out_basename, mask, format_output):
+def hydrogen_bonds(traj, out_dir, out_basename, mask, threshold, format_output):
     """
     Get the polar bonds (hydrogen) between the different atoms of the protein during the molecular dynamics simulation.
 
@@ -134,13 +134,15 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, format_output):
     :type out_basename: str
     :param mask: the selection mask.
     :type mask: str
+    :param threshold: the threshold distance in Angstroms for contacts.
+    :type threshold: float
     :param format_output: the output format for the plots.
     :type format_output: bool
     :return: the dataframe of the polar contacts.
     :rtype: pd.DataFrame
     """
     logging.info("Search for polar contacts:")
-    h_bonds = pt.hbond(traj)
+    h_bonds = pt.hbond(traj, distance=threshold)
     dist = pt.distance(traj, h_bonds.get_amber_mask()[0])
     pattern_hb = re.compile("\\D{3}(\\d+).+-\\D{3}(\\d+)")
     idx = 0
@@ -171,9 +173,9 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, format_output):
             width=400,
             height=260
         )
-        # add a threshold line
-        threshold = alt.Chart().mark_rule(color="red").encode(y=alt.datum(3.0))
-        contact_plot = contact_plot + threshold
+        # add a distance threshold line
+        h_line = alt.Chart().mark_rule(color="red").encode(y=alt.datum(threshold))
+        contact_plot = contact_plot + h_line
         nb_plots += 1
         plots.append(contact_plot)
 
@@ -208,6 +210,8 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--mask", required=False, type=str, help="the mask selection.")
     parser.add_argument("-f", "--output-format", required=False, choices=["svg", "png", "html", "pdf"], default="html",
                         help="the output plots format, if not used the default is HTML.")
+    parser.add_argument("-d", "--distance-contacts", required=False, type=float, default=3.0,
+                        help="the contacts distances threshold, default is 3.0 Angstroms.")
     parser.add_argument("-l", "--log", required=False, type=str,
                         help="the path for the log file. If this option is skipped, the log file is created in the "
                              "output directory.")
@@ -238,5 +242,5 @@ if __name__ == "__main__":
     data_traj = rmsd(trajectory, args.out, basename, args.mask, args.output_format)
 
     # find Hydrogen bonds
-    data_h_bonds = hydrogen_bonds(trajectory, args.out, basename, args.mask, args.output_format)
+    data_h_bonds = hydrogen_bonds(trajectory, args.out, basename, args.mask, args.distance_contacts, args.output_format)
     print(data_h_bonds)
