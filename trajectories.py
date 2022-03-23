@@ -19,7 +19,6 @@ import altair as alt
 import pandas as pd
 import pytraj as pt
 from Bio import PDB
-from pymol import cmd
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "references"))
 import polarPairs
