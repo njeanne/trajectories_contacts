@@ -14,7 +14,7 @@ conda env create -f references/trajectories_env.yml
 conda activate trajectories
 ```
 
-If the plots outputs are in another format than `HTML`, the chromium chromediver packages should be installed:
+If the plots outputs are in another format than `HTML`, some `npm` packages should be installed:
 ```shell script
-sudo apt install chromium-chromedriver
+npm install vega-lite vega-cli canvas
 ```
