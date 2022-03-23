@@ -200,10 +200,10 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_t
     h_bonds = pt.hbond(traj, distance=dist_thr)
     nb_total_contacts = len(h_bonds.data) - 1
     dist = pt.distance(traj, h_bonds.get_amber_mask()[0])
-    pattern_hb = re.compile("\\D{3}(\\d+).+-\\D{3}(\\d+)")
 
     nb_intra_residue_contacts = 0
     nb_frames_contacts_2nd_half_thr = 0
+    pattern_hb = re.compile("\\D{3}(\\d+).+-\\D{3}(\\d+)")
     h_bonds_data = {"frames": range(traj.n_frames)}
     idx = 0
     for h_bond in h_bonds.data:
@@ -234,33 +234,33 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_t
     df = pd.DataFrame(h_bonds_data)
     df = df[ordered_columns]
 
-    # plot all the contacts
-    plots = []
-    nb_plots = 0
-    for contact_id in df.columns[1:]:
-        source = df[["frames", contact_id]]
-        contact_plot = alt.Chart(data=source).mark_circle().encode(
-            x=alt.X("frames", title="Frame"),
-            y=alt.Y(contact_id, title="distance (\u212B)")
-        ).properties(
-            title={"text": f"Contact: {contact_id}"},
-            width=400,
-            height=260
-        )
-        # add a distance threshold line
-        h_line = alt.Chart().mark_rule(color="red").encode(y=alt.datum(dist_thr))
-        contact_plot = contact_plot + h_line
-        nb_plots += 1
-        plots.append(contact_plot)
-
-    # merge the plots by row of 3 and save them
-    contacts_plots = alt.concat(*plots, columns=3)
-
-    # save the plot
-    basename_path = os.path.join(out_dir, f"contacts_{out_basename}_{mask}" if mask else f"contacts_{out_basename}")
-    out_path_plot = f"{basename_path}.{format_output}"
-    contacts_plots.save(out_path_plot)
-    logging.info(f"\t{nb_plots}/{nb_total_contacts} inter residues atoms contacts plot saved: {out_path_plot}")
+    # # plot all the contacts
+    # plots = []
+    # nb_plots = 0
+    # for contact_id in df.columns[1:]:
+    #     source = df[["frames", contact_id]]
+    #     contact_plot = alt.Chart(data=source).mark_circle().encode(
+    #         x=alt.X("frames", title="Frame"),
+    #         y=alt.Y(contact_id, title="distance (\u212B)")
+    #     ).properties(
+    #         title={"text": f"Contact: {contact_id}"},
+    #         width=400,
+    #         height=260
+    #     )
+    #     # add a distance threshold line
+    #     h_line = alt.Chart().mark_rule(color="red").encode(y=alt.datum(dist_thr))
+    #     contact_plot = contact_plot + h_line
+    #     nb_plots += 1
+    #     plots.append(contact_plot)
+    #
+    # # merge the plots by row of 3 and save them
+    # contacts_plots = alt.concat(*plots, columns=3)
+    #
+    # # save the plot
+    # basename_path = os.path.join(out_dir, f"contacts_{out_basename}_{mask}" if mask else f"contacts_{out_basename}")
+    # out_path_plot = f"{basename_path}.{format_output}"
+    # contacts_plots.save(out_path_plot)
+    # logging.info(f"\t{nb_plots}/{nb_total_contacts} inter residues atoms contacts plot saved: {out_path_plot}")
 
     return df
 
@@ -274,22 +274,99 @@ def contacts_csv(df, out_path):
     :type df: pd.DataFrame
     :param out_path: the CSV output path.
     :type out_path: str
+    :return: the dataframe of the contacts statistics.
+    :rtype: pd.DataFrame
     """
     data = {"contact": [],
-            "mean distance (2nd half)": [],
-            "median distance (2nd half)": [],
-            "mean distance (whole)": [],
-            "median distance (whole)": []}
+            "mean distance 2nd half": [],
+            "median distance 2nd half": [],
+            "mean distance whole": [],
+            "median distance whole": []}
 
     df_half = df.iloc[int(len(df.index)/2):]
     for contact_id in df.columns[1:]:
         data["contact"].append(contact_id)
-        data["mean distance (2nd half)"].append(round(statistics.mean(df_half.loc[:, contact_id]), 2))
-        data["median distance (2nd half)"].append(round(statistics.median(df_half.loc[:, contact_id]), 2))
-        data["mean distance (whole)"].append(round(statistics.mean(df.loc[:, contact_id]), 2))
-        data["median distance (whole)"].append(round(statistics.median(df.loc[:, contact_id]), 2))
-    pd.DataFrame(data).to_csv(out_path, index=False)
+        data["mean distance 2nd half"].append(round(statistics.mean(df_half.loc[:, contact_id]), 2))
+        data["median distance 2nd half"].append(round(statistics.median(df_half.loc[:, contact_id]), 2))
+        data["mean distance whole"].append(round(statistics.mean(df.loc[:, contact_id]), 2))
+        data["median distance whole"].append(round(statistics.median(df.loc[:, contact_id]), 2))
+    contacts_stat = pd.DataFrame(data)
+    contacts_stat.to_csv(out_path, index=False)
     logging.info(f"inter residues atoms contacts CSV saved: {out_path}")
+
+    return contacts_stat
+
+
+def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt):
+    """
+    Create the heat map of contacts between residues.
+
+    :param df: the statistics dataframe.
+    :type df: pd.DataFrame
+    :param stat_col: the column in the dataframe to get the distances.
+    :type stat_col: str
+    :param out_basename: the basename.
+    :type out_basename: str
+    :param mask: the selection mask
+    :type mask: str
+    :param out_dir: the output directory.
+    :type out_dir: str
+    :param output_fmt: the output format for the heat map.
+    :type output_fmt: str
+    """
+    pattern = re.compile("(\\D{3})(\\d+).+-(\\D{3})(\\d+)")
+    donor_acceptor = {}
+    for _, row in df.iterrows():
+        match = pattern.search(row["contact"])
+        if match:
+            donor = f"{match.group(2)}{match.group(1)}"
+            acceptor = f"{match.group(4)}{match.group(3)}"
+            if donor in donor_acceptor:
+                if acceptor in donor_acceptor[donor]:
+                    donor_acceptor[donor][acceptor].append(row[stat_col])
+                else:
+                    donor_acceptor[donor][acceptor] = [row[stat_col]]
+            else:
+                donor_acceptor[donor] = {acceptor: [row[stat_col]]}
+    donors = []
+    acceptors = []
+    nb_contacts = []
+    min_distances = []
+    for donor in donor_acceptor:
+        donors = donors + [donor] * len(donor_acceptor[donor])
+        for acceptor in donor_acceptor[donor]:
+            acceptors.append(acceptor)
+            nb_contacts.append(len(donor_acceptor[donor][acceptor]))
+            min_distances.append(min(donor_acceptor[donor][acceptor]))
+    # get the heat map
+    source = pd.DataFrame({"acceptors": acceptors, "donors": donors, "number of contacts": nb_contacts,
+                           stat_col: min_distances})
+
+    heatmap = alt.Chart(data=source).mark_rect().encode(
+        x=alt.X("acceptors", type="nominal"),
+        y=alt.Y("donors", type="nominal"),
+        color=alt.Color(stat_col, type="quantitative", title="Distance (\u212B)", sort="descending",
+                        scale=alt.Scale(scheme="yelloworangered"))
+    ).properties(
+        title={
+            "text": f"Contact residues {stat_col}: {out_basename}",
+            "subtitle": ["Number of contacts displayed in the squares", f"Mask:\t{mask}" if mask else ""],
+            "subtitleColor": "gray"
+        },
+        width=600,
+        height=400
+    )
+    # Configure the text with the number of contacts
+    text = heatmap.mark_text(baseline="middle").encode(
+        text=alt.Text("number of contacts"),
+        color=alt.Color("number of contacts")
+    )
+    plot = heatmap + text
+    mask_str = f"_{mask}" if mask else ""
+    out_path = os.path.join(out_dir, f"heatmap_{stat_col.replace(' ', '-')}_{out_basename}{mask_str}.{output_fmt}")
+    plot.save(out_path)
+    # heatmap.save(out_path)
+    logging.info(f"\t{stat_col} heat map saved: {out_path}")
 
 
 if __name__ == "__main__":
@@ -355,4 +432,9 @@ if __name__ == "__main__":
     data_h_bonds = hydrogen_bonds(trajectory, args.out, basename, args.mask, args.distance_contacts,
                                   args.second_half_percent, args.output_format)
     # write the CSV for the contacts
-    contacts_csv(data_h_bonds, os.path.join(args.out, f"contacts_{basename}.csv"))
+    stats = contacts_csv(data_h_bonds, os.path.join(args.out, f"contacts_{basename}.csv"))
+
+    # get the heat maps of validated contacts by residues for each column of the statistics dataframe
+    logging.info("Heat maps contacts:")
+    for stat_column_id in stats.columns[1:]:
+        heat_map_contacts(stats, stat_column_id, basename, args.mask, args.out, args.output_format)
