@@ -13,13 +13,13 @@ import argparse
 import logging
 import os
 import re
+import statistics
 import sys
 
 import altair as alt
 import pandas as pd
 import pytraj as pt
 from Bio import PDB
-from pymol import cmd
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "references"))
 import polarPairs
@@ -256,16 +256,40 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_t
     # merge the plots by row of 3 and save them
     contacts_plots = alt.concat(*plots, columns=3)
 
-    # save the plot and the contacts list
+    # save the plot
     basename_path = os.path.join(out_dir, f"contacts_{out_basename}_{mask}" if mask else f"contacts_{out_basename}")
     out_path_plot = f"{basename_path}.{format_output}"
     contacts_plots.save(out_path_plot)
-    logging.info(f"\t{nb_plots}/{nb_total_contacts} inter residues atoms contacts saved to plot: {out_path_plot}")
-    with open(f"{basename_path}.txt", "w") as out_contacts:
-        for contact_id in df.columns[1:]:
-            out_contacts.write(f"{contact_id}\n")
+    logging.info(f"\t{nb_plots}/{nb_total_contacts} inter residues atoms contacts plot saved: {out_path_plot}")
 
     return df
+
+
+def contacts_csv(df, out_path):
+    """
+    Get the mean and median distances for the contacts in the whole molecular dynamics simulation and in the second
+    half of the simulation.
+
+    :param df: the contacts dataframe.
+    :type df: pd.DataFrame
+    :param out_path: the CSV output path.
+    :type out_path: str
+    """
+    data = {"contact": [],
+            "mean distance (2nd half)": [],
+            "median distance (2nd half)": [],
+            "mean distance (whole)": [],
+            "median distance (whole)": []}
+
+    df_half = df.iloc[int(len(df.index)/2):]
+    for contact_id in df.columns[1:]:
+        data["contact"].append(contact_id)
+        data["mean distance (2nd half)"].append(round(statistics.mean(df_half.loc[:, contact_id]), 2))
+        data["median distance (2nd half)"].append(round(statistics.median(df_half.loc[:, contact_id]), 2))
+        data["mean distance (whole)"].append(round(statistics.mean(df.loc[:, contact_id]), 2))
+        data["median distance (whole)"].append(round(statistics.median(df.loc[:, contact_id]), 2))
+    pd.DataFrame(data).to_csv(out_path, index=False)
+    logging.info(f"inter residues atoms contacts CSV saved: {out_path}")
 
 
 if __name__ == "__main__":
@@ -318,8 +342,8 @@ if __name__ == "__main__":
     logging.info(f"version: {__version__}")
     logging.info(f"CMD: {' '.join(sys.argv)}")
     logging.info(f"maximal threshold for atoms contacts distance: {args.distance_contacts} \u212B")
-    logging.info(f"minimal threshold for number of atoms contacts between two different residues: "
-                 f"{args.second_half_percent:.1f}%")
+    logging.info(f"minimal threshold for number of frames atoms contacts between two different residues in the second "
+                 f"half of the simulation: {args.second_half_percent:.1f}%")
 
     # load the trajectory
     trajectory = load_trajectory(args.input, args.topology, args.mask)
@@ -330,3 +354,5 @@ if __name__ == "__main__":
     # find Hydrogen bonds
     data_h_bonds = hydrogen_bonds(trajectory, args.out, basename, args.mask, args.distance_contacts,
                                   args.second_half_percent, args.output_format)
+    # write the CSV for the contacts
+    contacts_csv(data_h_bonds, os.path.join(args.out, f"contacts_{basename}.csv"))
