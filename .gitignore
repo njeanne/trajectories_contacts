@@ -1,4 +1,5 @@
 .idea
+data
 results
 references/__pycache__
 node_modules
