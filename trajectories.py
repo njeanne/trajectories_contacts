@@ -139,7 +139,8 @@ def rmsd(traj, out_dir, out_basename, mask, format_output):
 
 def sort_contacts(contact_names, pattern):
     """
-    Get the order of the contacts on the first residue then on the second one
+    Get the order of the contacts on the first residue then on the second one.
+
     :param contact_names: the contacts identifiers.
     :type contact_names: KeysView[Union[str, Any]]
     :parm pattern: the regex pattern to extract the residues positions of the atoms contacts.
@@ -148,10 +149,10 @@ def sort_contacts(contact_names, pattern):
     :rtype: list
     """
     tmp = {}
-    ordered_contacts_ids = []
+    ordered = []
     for contact_name in contact_names:
         if contact_name == "frames":
-            ordered_contacts_ids.append(contact_name)
+            ordered.append(contact_name)
         else:
             match = pattern.search(contact_name)
             if match:
@@ -169,9 +170,9 @@ def sort_contacts(contact_names, pattern):
     for key1 in sorted(tmp):
         for key2 in sorted(tmp[key1]):
             for contact_name in sorted(tmp[key1][key2]):
-                ordered_contacts_ids.append(contact_name)
+                ordered.append(contact_name)
 
-    return ordered_contacts_ids
+    return ordered
 
 
 def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_thr_2nd_half, format_output):
@@ -234,33 +235,33 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_t
     df = pd.DataFrame(h_bonds_data)
     df = df[ordered_columns]
 
-    # # plot all the contacts
-    # plots = []
-    # nb_plots = 0
-    # for contact_id in df.columns[1:]:
-    #     source = df[["frames", contact_id]]
-    #     contact_plot = alt.Chart(data=source).mark_circle().encode(
-    #         x=alt.X("frames", title="Frame"),
-    #         y=alt.Y(contact_id, title="distance (\u212B)")
-    #     ).properties(
-    #         title={"text": f"Contact: {contact_id}"},
-    #         width=400,
-    #         height=260
-    #     )
-    #     # add a distance threshold line
-    #     h_line = alt.Chart().mark_rule(color="red").encode(y=alt.datum(dist_thr))
-    #     contact_plot = contact_plot + h_line
-    #     nb_plots += 1
-    #     plots.append(contact_plot)
-    #
-    # # merge the plots by row of 3 and save them
-    # contacts_plots = alt.concat(*plots, columns=3)
-    #
-    # # save the plot
-    # basename_path = os.path.join(out_dir, f"contacts_{out_basename}_{mask}" if mask else f"contacts_{out_basename}")
-    # out_path_plot = f"{basename_path}.{format_output}"
-    # contacts_plots.save(out_path_plot)
-    # logging.info(f"\t{nb_plots}/{nb_total_contacts} inter residues atoms contacts plot saved: {out_path_plot}")
+    # plot all the contacts
+    plots = []
+    nb_plots = 0
+    for contact_id in df.columns[1:]:
+        source = df[["frames", contact_id]]
+        contact_plot = alt.Chart(data=source).mark_circle().encode(
+            x=alt.X("frames", title="Frame"),
+            y=alt.Y(contact_id, title="distance (\u212B)")
+        ).properties(
+            title={"text": f"Contact: {contact_id}"},
+            width=400,
+            height=260
+        )
+        # add a distance threshold line
+        h_line = alt.Chart().mark_rule(color="red").encode(y=alt.datum(dist_thr))
+        contact_plot = contact_plot + h_line
+        nb_plots += 1
+        plots.append(contact_plot)
+
+    # merge the plots by row of 3 and save them
+    contacts_plots = alt.concat(*plots, columns=3)
+
+    # save the plot
+    basename_path = os.path.join(out_dir, f"contacts_{out_basename}_{mask}" if mask else f"contacts_{out_basename}")
+    out_path_plot = f"{basename_path}.{format_output}"
+    contacts_plots.save(out_path_plot)
+    logging.info(f"\t{nb_plots}/{nb_total_contacts} inter residues atoms contacts plot saved: {out_path_plot}")
 
     return df
 
@@ -338,13 +339,14 @@ def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt):
             acceptors.append(acceptor)
             nb_contacts.append(len(donor_acceptor[donor][acceptor]))
             min_distances.append(min(donor_acceptor[donor][acceptor]))
+
     # get the heat map
     source = pd.DataFrame({"acceptors": acceptors, "donors": donors, "number of contacts": nb_contacts,
                            stat_col: min_distances})
 
     heatmap = alt.Chart(data=source).mark_rect().encode(
-        x=alt.X("acceptors", type="nominal"),
-        y=alt.Y("donors", type="nominal"),
+        x=alt.X("acceptors", type="nominal", sort=None),
+        y=alt.Y("donors", type="nominal", sort=None),
         color=alt.Color(stat_col, type="quantitative", title="Distance (\u212B)", sort="descending",
                         scale=alt.Scale(scheme="yelloworangered"))
     ).properties(
