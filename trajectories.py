@@ -279,18 +279,18 @@ def contacts_csv(df, out_path):
     :rtype: pd.DataFrame
     """
     data = {"contact": [],
-            "mean distance 2nd half": [],
-            "median distance 2nd half": [],
-            "mean distance whole": [],
-            "median distance whole": []}
+            "mean_distance_2nd_half": [],
+            "median_distance_2nd_half": [],
+            "mean_distance_whole": [],
+            "median_distance_whole": []}
 
     df_half = df.iloc[int(len(df.index)/2):]
     for contact_id in df.columns[1:]:
         data["contact"].append(contact_id)
-        data["mean distance 2nd half"].append(round(statistics.mean(df_half.loc[:, contact_id]), 2))
-        data["median distance 2nd half"].append(round(statistics.median(df_half.loc[:, contact_id]), 2))
-        data["mean distance whole"].append(round(statistics.mean(df.loc[:, contact_id]), 2))
-        data["median distance whole"].append(round(statistics.median(df.loc[:, contact_id]), 2))
+        data["mean_distance_2nd_half"].append(round(statistics.mean(df_half.loc[:, contact_id]), 2))
+        data["median_distance_2nd_half"].append(round(statistics.median(df_half.loc[:, contact_id]), 2))
+        data["mean_distance_whole"].append(round(statistics.mean(df.loc[:, contact_id]), 2))
+        data["median_distance_whole"].append(round(statistics.median(df.loc[:, contact_id]), 2))
     contacts_stat = pd.DataFrame(data)
     contacts_stat.to_csv(out_path, index=False)
     logging.info(f"inter residues atoms contacts CSV saved: {out_path}")
@@ -351,7 +351,7 @@ def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt):
                         scale=alt.Scale(scheme="yelloworangered"))
     ).properties(
         title={
-            "text": f"Contact residues {stat_col}: {out_basename}",
+            "text": f"Contact residues {stat_col.replace('_', ' ')}: {out_basename}",
             "subtitle": ["Number of contacts displayed in the squares", f"Mask:\t{mask}" if mask else ""],
             "subtitleColor": "gray"
         },
@@ -359,9 +359,14 @@ def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt):
         height=400
     )
     # Configure the text with the number of contacts
+    switch_color = min(source[stat_col]) + (max(source[stat_col]) - min(source[stat_col])) / 2
     text = heatmap.mark_text(baseline="middle").encode(
         text=alt.Text("number of contacts"),
-        color=alt.Color("number of contacts")
+        color=alt.condition(
+            f"datum.{stat_col} > {switch_color}",
+            alt.value("black"),
+            alt.value("white")
+        )
     )
     plot = heatmap + text
     mask_str = f"_{mask}" if mask else ""
