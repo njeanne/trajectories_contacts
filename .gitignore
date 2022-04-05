@@ -1,5 +1,9 @@
 .idea
+<<<<<<< HEAD
 references/__pycache__
+=======
+data
+>>>>>>> dev
 results
 references/__pycache__
 node_modules
