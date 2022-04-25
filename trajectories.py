@@ -189,8 +189,8 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_t
     :type mask: str
     :param dist_thr: the threshold distance in Angstroms for contacts.
     :type dist_thr: float
-    :param contacts_frame_thr_2nd_half: the minimal percentage of contacts for atoms contacts of different residues in the
-    second half of the simulation.
+    :param contacts_frame_thr_2nd_half: the minimal percentage of contacts for atoms contacts of different residues in
+    the second half of the simulation.
     :type contacts_frame_thr_2nd_half: float
     :param format_output: the output format for the plots.
     :type format_output: bool
@@ -227,7 +227,7 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_t
                                       f"threshold of {contacts_frame_thr_2nd_half:.1f}% for the second half of the "
                                       f"simulation, contact skipped")
             idx += 1
-    nb_used_contacts = nb_total_contacts - nb_intra_residue_contact - nb_frames_contacts_2nd_half_thr
+    nb_used_contacts = nb_total_contacts - nb_intra_residue_contacts - nb_frames_contacts_2nd_half_thr
     logging.info(f"\t{nb_intra_residue_contacts}/{nb_total_contacts} intra residues atoms contacts discarded.")
     logging.info(f"\t{nb_frames_contacts_2nd_half_thr}/{nb_total_contacts} inter residues atoms contacts discarded "
                  f"with number of contacts frames under the threshold of {contacts_frame_thr_2nd_half:.1f}% for the "
