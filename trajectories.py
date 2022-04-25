@@ -227,19 +227,23 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_t
                                       f"threshold of {contacts_frame_thr_2nd_half:.1f}% for the second half of the "
                                       f"simulation, contact skipped")
             idx += 1
+    nb_used_contacts = nb_total_contacts - nb_intra_residue_contact - nb_frames_contacts_2nd_half_thr
     logging.info(f"\t{nb_intra_residue_contacts}/{nb_total_contacts} intra residues atoms contacts discarded.")
     logging.info(f"\t{nb_frames_contacts_2nd_half_thr}/{nb_total_contacts} inter residues atoms contacts discarded "
                  f"with number of contacts frames under the threshold of {contacts_frame_thr_2nd_half:.1f}% for the "
                  f"second half of the simulation.")
+    logging.info(f"\t{nb_used_contacts} inter residues atoms contacts used.")
     ordered_columns = sort_contacts(h_bonds_data.keys(), pattern_hb)
     df = pd.DataFrame(h_bonds_data)
     df = df[ordered_columns]
 
     # plot all the contacts
-    contacts_plots_solo_dir = os.path.join(out_dir, "contacts")
+    contacts_plots_solo_dir = os.path.join(out_dir, "contacts_individual")
     os.makedirs(contacts_plots_solo_dir, exist_ok=True)
     plots = []
     nb_plots = 0
+    nb_merged_plots = 1
+    basename_path = os.path.join(out_dir, f"contacts_{out_basename}_{mask}" if mask else f"contacts_{out_basename}")
     for contact_id in df.columns[1:]:
         source = df[["frames", contact_id]]
         contact_plot = alt.Chart(data=source).mark_circle().encode(
@@ -257,18 +261,29 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_t
         path_solo = os.path.join(contacts_plots_solo_dir,
                                  f"{out_basename}_{contact_id}_{mask}.{format_output}" if mask else
                                  f"{out_basename}_{contact_id}.{format_output}")
-        contacts_plots.save(path_solo)
+        contact_plot.save(path_solo)
+        # add the plot to the list to create a whole picture
         nb_plots += 1
         plots.append(contact_plot)
 
-    # merge the plots by row of 3 and save them
-    contacts_plots = alt.concat(*plots, columns=3)
+        # create the merged plot if 15 plots are present in the list
+        if nb_plots % 15 == 0:
+            # merge the plots by row of 3
+            contacts_plots = alt.concat(*plots, columns=3)
+            # save the plot
+            out_path_plot = f"{basename_path}_{nb_merged_plots}.{format_output}"
+            contacts_plots.save(out_path_plot)
+            logging.info(f"\t{nb_plots}/{nb_used_contacts} inter residues atoms contacts plot saved: {out_path_plot}")
+            plots = []
+            nb_merged_plots += 1
 
-    # save the plot
-    basename_path = os.path.join(out_dir, f"contacts_{out_basename}_{mask}" if mask else f"contacts_{out_basename}")
-    out_path_plot = f"{basename_path}.{format_output}"
-    contacts_plots.save(out_path_plot)
-    logging.info(f"\t{nb_plots}/{nb_total_contacts} inter residues atoms contacts plot saved: {out_path_plot}")
+    # merge the remaining plots by row of 3 and save them
+    if plots:
+        contacts_plots = alt.concat(*plots, columns=3)
+        # save the plot
+        out_path_plot = f"{basename_path}_{nb_merged_plots}.{format_output}"
+        contacts_plots.save(out_path_plot)
+        logging.info(f"\t{nb_plots}/{nb_used_contacts} inter residues atoms contacts plot saved: {out_path_plot}")
 
     return df
 
