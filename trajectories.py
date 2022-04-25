@@ -236,6 +236,8 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_t
     df = df[ordered_columns]
 
     # plot all the contacts
+    contacts_plots_solo_dir = os.path.join(out_dir, "contacts")
+    os.makedirs(contacts_plots_solo_dir, exist_ok=True)
     plots = []
     nb_plots = 0
     for contact_id in df.columns[1:]:
@@ -251,6 +253,11 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_t
         # add a distance threshold line
         h_line = alt.Chart().mark_rule(color="red").encode(y=alt.datum(dist_thr))
         contact_plot = contact_plot + h_line
+        # save the plot of the contact
+        path_solo = os.path.join(contacts_plots_solo_dir,
+                                 f"{out_basename}_{contact_id}_{mask}.{format_output}" if mask else
+                                 f"{out_basename}_{contact_id}.{format_output}")
+        contacts_plots.save(path_solo)
         nb_plots += 1
         plots.append(contact_plot)
 
@@ -386,9 +393,9 @@ if __name__ == "__main__":
 
     Distributed on an "AS IS" basis without warranties or conditions of any kind, either express or implied.
 
-    From a molecular dynamics trajectory file and eventually a mask selection 
-    (https://amber-md.github.io/pytraj/latest/atom_mask_selection.html#examples-atom-mask-selection-for-trajectory), 
-    perform trajectory analysis. The script computes the Root Mean Square Deviation (RMSD) and the hydrogen contacts 
+    From a molecular dynamics trajectory file and eventually a mask selection
+    (https://amber-md.github.io/pytraj/latest/atom_mask_selection.html#examples-atom-mask-selection-for-trajectory),
+    perform trajectory analysis. The script computes the Root Mean Square Deviation (RMSD) and the hydrogen contacts
     between atoms of two different residues.
     """
     parser = argparse.ArgumentParser(description=descr, formatter_class=argparse.RawDescriptionHelpFormatter)
