@@ -104,14 +104,14 @@ def rmsd(traj, out_dir, out_basename, mask, format_output):
 
     :param traj: the trajectory.
     :type traj: pt.Trajectory
-    :param out_dir: the output directory path/
+    :param out_dir: the output directory path
     :type out_dir: str
     :param out_basename: the plot basename.
     :type out_basename: str
     :param mask: the selection mask.
-    :type mask: str
+    :type mask: str or None
     :param format_output: the output format for the plots.
-    :type format_output: bool
+    :type format_output: str
     :return: the trajectory data.
     :rtype: pd.DataFrame
     """
