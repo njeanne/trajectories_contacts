@@ -467,3 +467,8 @@ if __name__ == "__main__":
     logging.info("Heat maps contacts:")
     for stat_column_id in stats.columns[1:]:
         heat_map_contacts(stats, stat_column_id, basename, args.mask, args.out, args.output_format)
+
+    # clean the geckodriver log file
+    path_geckodriver_log = os.path.join(args.out, "geckodriver.log")
+    if os.path.exists(path_geckodriver_log):
+        os.remove(path_geckodriver_log)
