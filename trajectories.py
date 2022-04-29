@@ -452,7 +452,13 @@ if __name__ == "__main__":
                  f"half of the simulation: {args.second_half_percent:.1f}%")
 
     # load the trajectory
-    trajectory = load_trajectory(args.input, args.topology, args.mask)
+    try:
+        trajectory = load_trajectory(args.input, args.topology, args.mask)
+    except RuntimeError as exc:
+        logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists. \
+        {exc}")
+        sys.exit(1)
+
     # compute RMSD and create the plot
     basename = os.path.splitext(os.path.basename(args.input))[0]
     data_traj = rmsd(trajectory, args.out, basename, args.mask, args.output_format)
@@ -460,6 +466,7 @@ if __name__ == "__main__":
     # find Hydrogen bonds
     data_h_bonds = hydrogen_bonds(trajectory, args.out, basename, args.mask, args.distance_contacts,
                                   args.second_half_percent, args.output_format)
+
     # write the CSV for the contacts
     stats = contacts_csv(data_h_bonds, os.path.join(args.out, f"contacts_{basename}.csv"))
 
