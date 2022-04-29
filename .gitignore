@@ -1,6 +1,7 @@
 .idea
 data
 results
+__pycache__
 references/__pycache__
 node_modules
 geckodriver.log
