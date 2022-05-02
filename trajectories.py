@@ -458,6 +458,10 @@ if __name__ == "__main__":
         logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists. \
         {exc}")
         sys.exit(1)
+    except ValueError as exc:
+        logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists. \
+        {exc}")
+        sys.exit(1)
 
     # compute RMSD and create the plot
     basename = os.path.splitext(os.path.basename(args.input))[0]
