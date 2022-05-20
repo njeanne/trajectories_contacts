@@ -143,7 +143,7 @@ def sort_contacts(contact_names, pattern):
 
     :param contact_names: the contacts identifiers.
     :type contact_names: KeysView[Union[str, Any]]
-    :parm pattern: the regex pattern to extract the residues positions of the atoms contacts.
+    :param pattern: the regex pattern to extract the residues positions of the atoms contacts.
     :type pattern: re.pattern
     :return: the ordered list of contacts.
     :rtype: list
@@ -156,13 +156,13 @@ def sort_contacts(contact_names, pattern):
         else:
             match = pattern.search(contact_name)
             if match:
-                if int(match.group(1)) in tmp:
-                    if int(match.group(2)) in tmp[int(match.group(1))]:
-                        tmp[int(match.group(1))][int(match.group(2))].append(contact_name)
+                if int(match.group(2)) in tmp:
+                    if int(match.group(4)) in tmp[int(match.group(2))]:
+                        tmp[int(match.group(2))][int(match.group(4))].append(contact_name)
                     else:
-                        tmp[int(match.group(1))][int(match.group(2))] = [contact_name]
+                        tmp[int(match.group(2))][int(match.group(4))] = [contact_name]
                 else:
-                    tmp[int(match.group(1))] = {int(match.group(2)): [contact_name]}
+                    tmp[int(match.group(2))] = {int(match.group(4)): [contact_name]}
             else:
                 logging.error(f"no match for {pattern.pattern} in {contact_name}")
                 sys.exit(1)
@@ -175,7 +175,7 @@ def sort_contacts(contact_names, pattern):
     return ordered
 
 
-def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_thr_2nd_half, format_output):
+def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_thr_2nd_half, format_output, pattern_hb):
     """
     Get the polar bonds (hydrogen) between the different atoms of the protein during the molecular dynamics simulation.
 
@@ -194,6 +194,8 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_t
     :type contacts_frame_thr_2nd_half: float
     :param format_output: the output format for the plots.
     :type format_output: bool
+    :param pattern_hb: the pattern for the hydrogen bond name.
+    :type pattern_hb: re.pattern
     :return: the dataframe of the polar contacts.
     :rtype: pd.DataFrame
     """
@@ -204,14 +206,13 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_t
 
     nb_intra_residue_contacts = 0
     nb_frames_contacts_2nd_half_thr = 0
-    pattern_hb = re.compile("\\D{3}(\\d+).+-\\D{3}(\\d+)")
     h_bonds_data = {"frames": range(traj.n_frames)}
     idx = 0
     for h_bond in h_bonds.data:
         if h_bond.key != "total_solute_hbonds":
             match = pattern_hb.search(h_bond.key)
             if match:
-                if match.group(1) == match.group(2):
+                if match.group(2) == match.group(4):
                     nb_intra_residue_contacts += 1
                     logging.debug(f"\t {h_bond.key}: atoms contact from same residue, contact skipped")
                 else:
@@ -288,7 +289,7 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_t
     return df
 
 
-def contacts_csv(df, out_path):
+def contacts_csv(df, out_path, pattern):
     """
     Get the mean and median distances for the contacts in the whole molecular dynamics simulation and in the second
     half of the simulation.
@@ -297,10 +298,16 @@ def contacts_csv(df, out_path):
     :type df: pd.DataFrame
     :param out_path: the CSV output path.
     :type out_path: str
+    :param pattern: the pattern for the contact.
+    :type pattern: re.pattern
     :return: the dataframe of the contacts statistics.
     :rtype: pd.DataFrame
     """
     data = {"contact": [],
+            "donor position": [],
+            "donor residue": [],
+            "acceptor position": [],
+            "acceptor residue": [],
             "mean_distance_2nd_half": [],
             "median_distance_2nd_half": [],
             "mean_distance_whole": [],
@@ -309,6 +316,17 @@ def contacts_csv(df, out_path):
     df_half = df.iloc[int(len(df.index)/2):]
     for contact_id in df.columns[1:]:
         data["contact"].append(contact_id)
+        match = pattern.search(contact_id)
+        if match:
+            data["donor position"].append(match.group(2))
+            data["donor residue"].append(match.group(1))
+            data["acceptor position"].append(match.group(4))
+            data["acceptor residue"].append(match.group(3))
+        else:
+            data["donor position"].append("not found")
+            data["donor residue"].append("not found")
+            data["acceptor position"].append("not found")
+            data["acceptor_residue"].append("not found")
         data["mean_distance_2nd_half"].append(round(statistics.mean(df_half.loc[:, contact_id]), 2))
         data["median_distance_2nd_half"].append(round(statistics.median(df_half.loc[:, contact_id]), 2))
         data["mean_distance_whole"].append(round(statistics.mean(df.loc[:, contact_id]), 2))
@@ -337,20 +355,18 @@ def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt):
     :param output_fmt: the output format for the heat map.
     :type output_fmt: str
     """
-    pattern = re.compile("(\\D{3})(\\d+).+-(\\D{3})(\\d+)")
     donor_acceptor = {}
+    print(stat_col)
     for _, row in df.iterrows():
-        match = pattern.search(row["contact"])
-        if match:
-            donor = f"{match.group(2)}{match.group(1)}"
-            acceptor = f"{match.group(4)}{match.group(3)}"
-            if donor in donor_acceptor:
-                if acceptor in donor_acceptor[donor]:
-                    donor_acceptor[donor][acceptor].append(row[stat_col])
-                else:
-                    donor_acceptor[donor][acceptor] = [row[stat_col]]
+        donor = f"{row['donor position']}{row['donor residue']}"
+        acceptor = f"{row['acceptor position']}{row['acceptor residue']}"
+        if donor in donor_acceptor:
+            if acceptor in donor_acceptor[donor]:
+                donor_acceptor[donor][acceptor].append(row[stat_col])
             else:
-                donor_acceptor[donor] = {acceptor: [row[stat_col]]}
+                donor_acceptor[donor][acceptor] = [row[stat_col]]
+        else:
+            donor_acceptor[donor] = {acceptor: [row[stat_col]]}
     donors = []
     acceptors = []
     nb_contacts = []
@@ -468,15 +484,16 @@ if __name__ == "__main__":
     data_traj = rmsd(trajectory, args.out, basename, args.mask, args.output_format)
 
     # find Hydrogen bonds
+    pattern_contact = re.compile("(\\D{3})(\\d+).+-(\\D{3})(\\d+)")
     data_h_bonds = hydrogen_bonds(trajectory, args.out, basename, args.mask, args.distance_contacts,
-                                  args.second_half_percent, args.output_format)
+                                  args.second_half_percent, args.output_format, pattern_contact)
 
     # write the CSV for the contacts
-    stats = contacts_csv(data_h_bonds, os.path.join(args.out, f"contacts_{basename}.csv"))
+    stats = contacts_csv(data_h_bonds, os.path.join(args.out, f"contacts_{basename}.csv"), pattern_contact)
 
     # get the heat maps of validated contacts by residues for each column of the statistics dataframe
     logging.info("Heat maps contacts:")
-    for stat_column_id in stats.columns[1:]:
+    for stat_column_id in stats.columns[5:]:
         heat_map_contacts(stats, stat_column_id, basename, args.mask, args.out, args.output_format)
 
     # clean the geckodriver log file
