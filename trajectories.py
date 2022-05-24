@@ -356,7 +356,6 @@ def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt):
     :type output_fmt: str
     """
     donor_acceptor = {}
-    print(stat_col)
     for _, row in df.iterrows():
         donor = f"{row['donor position']}{row['donor residue']}"
         acceptor = f"{row['acceptor position']}{row['acceptor residue']}"
