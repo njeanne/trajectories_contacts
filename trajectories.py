@@ -170,38 +170,31 @@ def sort_contacts(contact_names, pattern):
     return ordered
 
 
-def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_thr_2nd_half, format_output, pattern_hb):
+def hydrogen_bonds(traj, dist_thr, contacts_frame_thr_2nd_half, pattern_hb):
     """
     Get the polar bonds (hydrogen) between the different atoms of the protein during the molecular dynamics simulation.
 
     :param traj: the trajectory.
     :type traj: pt.Trajectory
-    :param out_dir: the output directory path/
-    :type out_dir: str
-    :param out_basename: the plot basename.
-    :type out_basename: str
-    :param mask: the selection mask.
-    :type mask: str
     :param dist_thr: the threshold distance in Angstroms for contacts.
     :type dist_thr: float
     :param contacts_frame_thr_2nd_half: the minimal percentage of contacts for atoms contacts of different residues in
     the second half of the simulation.
     :type contacts_frame_thr_2nd_half: float
-    :param format_output: the output format for the plots.
-    :type format_output: bool
     :param pattern_hb: the pattern for the hydrogen bond name.
     :type pattern_hb: re.pattern
     :return: the dataframe of the polar contacts.
     :rtype: pd.DataFrame
     """
-    logging.info("Search for polar contacts:")
+    logging.info("Retrieve the hydrogen bonds from the trajectory file, please be patient..")
     h_bonds = pt.hbond(traj, distance=dist_thr)
     nb_total_contacts = len(h_bonds.data) - 1
     dist = pt.distance(traj, h_bonds.get_amber_mask()[0])
+    logging.info(f"Search for inter residues polar contacts in {nb_total_contacts} total polar contacts:")
 
     nb_intra_residue_contacts = 0
     nb_frames_contacts_2nd_half_thr = 0
-    h_bonds_data = {"frames": range(traj.n_frames)}
+    data_hydrogen_bonds = {"frames": range(traj.n_frames)}
     idx = 0
     for h_bond in h_bonds.data:
         if h_bond.key != "total_solute_hbonds":
@@ -213,33 +206,58 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_t
                 else:
                     # get the second half of the simulation
                     second_half = dist[idx][int(len(dist[idx])/2):]
-                    # retrieve only the contacts >= percentage threshold in the second half of the simulation
+                    # retrieve only the contacts >= percentage threshold of frames in the second half of the simulation
                     pct_contacts = len(second_half[second_half <= dist_thr]) / len(second_half) * 100
                     if pct_contacts >= contacts_frame_thr_2nd_half:
-                        h_bonds_data[h_bond.key] = dist[idx]
+                        data_hydrogen_bonds[h_bond.key] = dist[idx]
                     else:
                         nb_frames_contacts_2nd_half_thr += 1
                         logging.debug(f"\t {h_bond.key}: {pct_contacts:.1f}% of the frames with contacts under the "
                                       f"threshold of {contacts_frame_thr_2nd_half:.1f}% for the second half of the "
                                       f"simulation, contact skipped")
             idx += 1
+
     nb_used_contacts = nb_total_contacts - nb_intra_residue_contacts - nb_frames_contacts_2nd_half_thr
     logging.info(f"\t{nb_intra_residue_contacts}/{nb_total_contacts} intra residues atoms contacts discarded.")
     logging.info(f"\t{nb_frames_contacts_2nd_half_thr}/{nb_total_contacts} inter residues atoms contacts discarded "
                  f"with number of contacts frames under the threshold of {contacts_frame_thr_2nd_half:.1f}% for the "
                  f"second half of the simulation.")
     logging.info(f"\t{nb_used_contacts} inter residues atoms contacts used.")
-    ordered_columns = sort_contacts(h_bonds_data.keys(), pattern_hb)
-    df = pd.DataFrame(h_bonds_data)
+    ordered_columns = sort_contacts(data_hydrogen_bonds.keys(), pattern_hb)
+    df = pd.DataFrame(data_hydrogen_bonds)
     df = df[ordered_columns]
 
-    # plot all the contacts
-    contacts_plots_solo_dir = os.path.join(out_dir, "contacts_individual")
+    return df
+
+
+def plot_individual_contacts(df, out_dir, out_basename, dist_thr, mask, format_output):
+    """
+    Plot individual inter residues polar contacts.
+
+    :param df: the inter residues polar contacts.
+    :type df: pd.Dataframe
+    :param out_dir: the output directory path.
+    :type out_dir: str
+    :param out_basename: the plot basename.
+    :type out_basename: str
+    :param dist_thr: the threshold distance in Angstroms for contacts.
+    :type dist_thr: float
+    :param mask: the selection mask.
+    :type mask: str
+    :param format_output: the output format for the plots.
+    :type format_output: str
+    """
+    contacts_plots_solo_dir = os.path.join(out_dir, "contacts_individual", "solo")
     os.makedirs(contacts_plots_solo_dir, exist_ok=True)
+    contacts_plots_merged_dir = os.path.join(out_dir, "contacts_individual", "merged")
+    os.makedirs(contacts_plots_merged_dir, exist_ok=True)
+
+    # plot all the contacts
+    nb_used_contacts = len(df.columns[1:])
     plots = []
     nb_plots = 0
     nb_merged_plots = 1
-    basename_path = os.path.join(out_dir, f"contacts_{out_basename}_{mask}" if mask else f"contacts_{out_basename}")
+    basename_merged = f"contacts_{out_basename}_{mask}" if mask else f"contacts_{out_basename}"
     for contact_id in df.columns[1:]:
         source = df[["frames", contact_id]]
         contact_plot = alt.Chart(data=source).mark_circle().encode(
@@ -255,8 +273,7 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_t
         contact_plot = contact_plot + h_line
         # save the plot of the contact
         path_solo = os.path.join(contacts_plots_solo_dir,
-                                 f"{out_basename}_{contact_id}_{mask}.{format_output}" if mask else
-                                 f"{out_basename}_{contact_id}.{format_output}")
+                                 f"{out_basename}_{contact_id}_{'_'+mask if mask else ''}.{format_output}")
         contact_plot.save(path_solo)
         # add the plot to the list to create a whole picture
         nb_plots += 1
@@ -267,9 +284,11 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_t
             # merge the plots by row of 3
             contacts_plots = alt.concat(*plots, columns=3)
             # save the plot
-            out_path_plot = f"{basename_path}_{nb_merged_plots}.{format_output}"
+            out_path_plot = os.path.join(contacts_plots_merged_dir,
+                                         f"{basename_merged}_{nb_merged_plots}.{format_output}")
             contacts_plots.save(out_path_plot)
-            logging.info(f"\t{nb_plots}/{nb_used_contacts} inter residues atoms contacts plot saved: {out_path_plot}")
+            logging.info(f"\t{nb_plots}/{nb_used_contacts} inter residues atoms contacts plot saved: "
+                         f"{out_path_plot}")
             plots = []
             nb_merged_plots += 1
 
@@ -277,7 +296,8 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_t
     if plots:
         contacts_plots = alt.concat(*plots, columns=3)
         # save the plot
-        out_path_plot = f"{basename_path}_{nb_merged_plots}.{format_output}"
+        out_path_plot = os.path.join(contacts_plots_merged_dir,
+                                     f"{basename_merged}_{nb_merged_plots}.{format_output}")
         contacts_plots.save(out_path_plot)
         logging.info(f"\t{nb_plots}/{nb_used_contacts} inter residues atoms contacts plot saved: {out_path_plot}")
 
@@ -326,7 +346,7 @@ def contacts_csv(df, out_path, pattern):
         data["median_distance_whole"].append(round(statistics.median(df.loc[:, contact_id]), 2))
     contacts_stat = pd.DataFrame(data)
     contacts_stat.to_csv(out_path, index=False)
-    logging.info(f"inter residues atoms contacts CSV saved: {out_path}")
+    logging.info(f"Inter residues atoms contacts CSV saved: {out_path}")
 
     return contacts_stat
 
@@ -433,6 +453,8 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--second-half-percent", required=False, type=restricted_float, default=20.0,
                         help="the minimal percentage of frames which make contact between 2 atoms of different "
                              "residues in the second half of the molecular dynamics simulation, default is 20%%.")
+    parser.add_argument("-i", "--individual-plots", required=False, action="store_true",
+                        help="plot the individual contacts.")
     parser.add_argument("-l", "--log", required=False, type=str,
                         help="the path for the log file. If this option is skipped, the log file is created in the "
                              "output directory.")
