@@ -7,6 +7,7 @@ __version__ = '1.0.0'
 __email__ = 'jeanne.n@chu-toulouse.fr'
 
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -33,6 +34,7 @@ class TestTrajectories(unittest.TestCase):
         self.format_output = "png"
         self.dist_thr = 3.0
         self.contacts_frame_thr_2nd_half = 20.0
+        self.pattern_contact = re.compile("(\\D{3})(\\d+).+-(\\D{3})(\\d+)")
         self.traj = pt.iterload(os.path.join(TEST_DIR, "test_files", "JQ679014_hinge_WT_ranked_0_MD-1M.nc"),
                                 os.path.join(TEST_DIR, "test_files", "JQ679014_hinge_WT_ranked_0.parm"))
         with open(os.path.join(TEST_DIR, "test_files", "rmsd.csv"), "r") as rmsd_csv_file:
@@ -58,7 +60,7 @@ class TestTrajectories(unittest.TestCase):
     def test_hydrogen_bonds(self):
         unique_id = str(uuid.uuid1())
         observed = hydrogen_bonds(self.traj, self.tmp_dir, unique_id, self.mask, self.dist_thr,
-                                  self.contacts_frame_thr_2nd_half, self.format_output)
+                                  self.contacts_frame_thr_2nd_half, self.format_output, self.pattern_contact)
         path_observed = os.path.join(self.tmp_dir, unique_id)
         observed.to_csv(path_observed)
         with open(path_observed, "r") as observed_file:
