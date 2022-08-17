@@ -111,8 +111,6 @@ def rmsd(traj, out_dir, out_basename, mask, format_output):
     :type mask: str or None
     :param format_output: the output format for the plots.
     :type format_output: str
-    :return: the trajectory data.
-    :rtype: pd.DataFrame
     """
     rmsd_traj = pt.rmsd(traj, ref=0)
     source = pd.DataFrame({"frames": range(traj.n_frames), "RMSD": rmsd_traj})
@@ -132,8 +130,6 @@ def rmsd(traj, out_dir, out_basename, mask, format_output):
     out_path = f"{basename_plot_path}.{format_output}"
     rmsd_plot.save(out_path)
     logging.info(f"RMSD plot saved: {out_path}")
-
-    return source
 
 
 def sort_contacts(contact_names, pattern):
@@ -284,8 +280,6 @@ def hydrogen_bonds(traj, out_dir, out_basename, mask, dist_thr, contacts_frame_t
         out_path_plot = f"{basename_path}_{nb_merged_plots}.{format_output}"
         contacts_plots.save(out_path_plot)
         logging.info(f"\t{nb_plots}/{nb_used_contacts} inter residues atoms contacts plot saved: {out_path_plot}")
-
-    return df
 
 
 def contacts_csv(df, out_path, pattern):
@@ -479,12 +473,16 @@ if __name__ == "__main__":
 
     # compute RMSD and create the plot
     basename = os.path.splitext(os.path.basename(args.input))[0]
-    data_traj = rmsd(trajectory, args.out, basename, args.mask, args.output_format)
+    # data_traj = rmsd(trajectory, args.out, basename, args.mask, args.output_format)
+    rmsd(trajectory, args.out, basename, args.mask, args.output_format)
 
     # find Hydrogen bonds
     pattern_contact = re.compile("(\\D{3})(\\d+).+-(\\D{3})(\\d+)")
-    data_h_bonds = hydrogen_bonds(trajectory, args.out, basename, args.mask, args.distance_contacts,
-                                  args.second_half_percent, args.output_format, pattern_contact)
+    data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.second_half_percent, pattern_contact)
+    if args.individual_plots:
+        # plot individual contacts
+        plot_individual_contacts(data_h_bonds, args.out, basename, args.distance_contacts, args.mask,
+                                 args.output_format)
 
     # write the CSV for the contacts
     stats = contacts_csv(data_h_bonds, os.path.join(args.out, f"contacts_{basename}.csv"), pattern_contact)
