@@ -186,7 +186,7 @@ def hydrogen_bonds(traj, dist_thr, contacts_frame_thr_2nd_half, pattern_hb):
     :return: the dataframe of the polar contacts.
     :rtype: pd.DataFrame
     """
-    logging.info("Retrieve the hydrogen bonds from the trajectory file, please be patient..")
+    logging.info("Hydrogen bonds retrieval from the trajectory file, please be patient..")
     h_bonds = pt.hbond(traj, distance=dist_thr)
     nb_total_contacts = len(h_bonds.data) - 1
     dist = pt.distance(traj, h_bonds.get_amber_mask()[0])
