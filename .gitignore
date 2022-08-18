@@ -4,6 +4,6 @@ results
 __pycache__
 references/__pycache__
 node_modules
-geckodriver.log
+**geckodriver.log
 package.json
 package-lock.json
