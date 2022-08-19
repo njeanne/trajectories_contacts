@@ -87,7 +87,7 @@ def load_trajectory(trajectory_file, topology_file, mask):
     traj = pt.iterload(trajectory_file, topology_file)
     logging.info("Load trajectory file:")
     if mask is not None:
-        logging.info(f"\tapplied mask:\t{mask}")
+        logging.info(f"\tApplied mask:\t{mask}")
         traj = traj[mask]
     logging.info(f"\tFrames:\t\t{traj.n_frames}")
     logging.info(f"\tMolecules:\t{traj.topology.n_mols}")
@@ -222,6 +222,10 @@ def hydrogen_bonds(traj, dist_thr, contacts_frame_thr_2nd_half, pattern_hb):
     logging.info(f"\t{nb_frames_contacts_2nd_half_thr}/{nb_total_contacts} inter residues atoms contacts discarded "
                  f"with number of contacts frames under the threshold of {contacts_frame_thr_2nd_half:.1f}% for the "
                  f"second half of the simulation.")
+    if nb_used_contacts == 0:
+        logging.error(f"\t{nb_used_contacts} inter residues atoms contacts remaining, analysis stopped. Check the "
+                      f"applied mask selection value if used.")
+        sys.exit(0)
     logging.info(f"\t{nb_used_contacts} inter residues atoms contacts used.")
     ordered_columns = sort_contacts(data_hydrogen_bonds.keys(), pattern_hb)
     df = pd.DataFrame(data_hydrogen_bonds)
@@ -351,7 +355,7 @@ def contacts_csv(df, out_path, pattern):
     return contacts_stat
 
 
-def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt):
+def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt, roi_hm=None):
     """
     Create the heat map of contacts between residues.
 
@@ -367,18 +371,27 @@ def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt):
     :type out_dir: str
     :param output_fmt: the output format for the heat map.
     :type output_fmt: str
+    :param roi_hm: the coordinates of the boundaries of the region to display, i.e: 682-850
+    :type roi_hm: str
     """
     donor_acceptor = {}
     for _, row in df.iterrows():
-        donor = f"{row['donor position']}{row['donor residue']}"
-        acceptor = f"{row['acceptor position']}{row['acceptor residue']}"
-        if donor in donor_acceptor:
-            if acceptor in donor_acceptor[donor]:
-                donor_acceptor[donor][acceptor].append(row[stat_col])
-            else:
-                donor_acceptor[donor][acceptor] = [row[stat_col]]
+        donor = None
+        if roi_hm:
+            roi_split = roi_hm.split("-")
+            if int(roi_split[1]) >= row["donor position"] >= int(roi_split[0]):
+                donor = f"{row['donor position']}{row['donor residue']}"
         else:
-            donor_acceptor[donor] = {acceptor: [row[stat_col]]}
+            donor = f"{row['donor position']}{row['donor residue']}"
+        if donor:
+            acceptor = f"{row['acceptor position']}{row['acceptor residue']}"
+            if donor in donor_acceptor:
+                if acceptor in donor_acceptor[donor]:
+                    donor_acceptor[donor][acceptor].append(row[stat_col])
+                else:
+                    donor_acceptor[donor][acceptor] = [row[stat_col]]
+            else:
+                donor_acceptor[donor] = {acceptor: [row[stat_col]]}
     donors = []
     acceptors = []
     nb_contacts = []
@@ -394,6 +407,7 @@ def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt):
     source = pd.DataFrame({"acceptors": acceptors, "donors": donors, "number of contacts": nb_contacts,
                            stat_col: min_distances})
 
+    mask_in_title = f" with mask {mask}" if mask else ""
     heatmap = alt.Chart(data=source).mark_rect().encode(
         x=alt.X("acceptors", type="nominal", sort=None),
         y=alt.Y("donors", type="nominal", sort=None),
@@ -401,8 +415,9 @@ def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt):
                         scale=alt.Scale(scheme="yelloworangered"))
     ).properties(
         title={
-            "text": f"Contact residues {stat_col.replace('_', ' ')}: {out_basename}",
-            "subtitle": ["Number of contacts displayed in the squares", f"Mask:\t{mask}" if mask else ""],
+            "text": f"Contact residues {stat_col.replace('_', ' ')}: {out_basename}{mask_in_title}",
+            "subtitle": ["Number of contacts displayed in the squares",
+                         f"Donor region of interest:\t{roi_hm}" if roi_hm else ""],
             "subtitleColor": "gray"
         },
         width=600,
@@ -446,6 +461,9 @@ if __name__ == "__main__":
     parser.add_argument("-t", "--topology", required=True, type=str,
                         help="the path to the molecular dynamics topology file.")
     parser.add_argument("-m", "--mask", required=False, type=str, help="the mask selection.")
+    parser.add_argument("-r", "--roi-hm", required=False, type=str,
+                        help="the boundaries of the region to display in the heatmap, should be for example "
+                             "--roi 682-850")
     parser.add_argument("-f", "--output-format", required=False, choices=["svg", "png", "html", "pdf"], default="html",
                         help="the output plots format, if not used the default is HTML.")
     parser.add_argument("-d", "--distance-contacts", required=False, type=float, default=3.0,
@@ -495,7 +513,6 @@ if __name__ == "__main__":
 
     # compute RMSD and create the plot
     basename = os.path.splitext(os.path.basename(args.input))[0]
-    # data_traj = rmsd(trajectory, args.out, basename, args.mask, args.output_format)
     rmsd(trajectory, args.out, basename, args.mask, args.output_format)
 
     # find Hydrogen bonds
@@ -512,7 +529,8 @@ if __name__ == "__main__":
     # get the heat maps of validated contacts by residues for each column of the statistics dataframe
     logging.info("Heat maps contacts:")
     for stat_column_id in stats.columns[5:]:
-        heat_map_contacts(stats, stat_column_id, basename, args.mask, args.out, args.output_format)
+        heat_map_contacts(stats, stat_column_id, basename, args.out, args.output_format, args.roi_hm)
+        heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt, roi_hm=None)
 
     # clean the geckodriver log file
     path_geckodriver_log = os.path.join(args.out, "geckodriver.log")
