@@ -306,17 +306,19 @@ def plot_individual_contacts(df, out_dir, out_basename, dist_thr, mask, format_o
         logging.info(f"\t{nb_plots}/{nb_used_contacts} inter residues atoms contacts plot saved: {out_path_plot}")
 
 
-def contacts_csv(df, out_path, pattern):
+def contacts_csv(df, out_dir, pattern, mask):
     """
     Get the mean and median distances for the contacts in the whole molecular dynamics simulation and in the second
     half of the simulation.
 
     :param df: the contacts dataframe.
     :type df: pd.DataFrame
-    :param out_path: the CSV output path.
-    :type out_path: str
+    :param out_dir: the directory output path.
+    :type out_dir: str
     :param pattern: the pattern for the contact.
     :type pattern: re.pattern
+    :param mask: the selection mask.
+    :type mask: str
     :return: the dataframe of the contacts statistics.
     :rtype: pd.DataFrame
     """
@@ -349,13 +351,14 @@ def contacts_csv(df, out_path, pattern):
         data["mean_distance_whole"].append(round(statistics.mean(df.loc[:, contact_id]), 2))
         data["median_distance_whole"].append(round(statistics.median(df.loc[:, contact_id]), 2))
     contacts_stat = pd.DataFrame(data)
+    out_path = os.path.join(out_dir, f"contacts_{basename}_{mask}.csv" if mask else f"contacts_{basename}.csv")
     contacts_stat.to_csv(out_path, index=False)
     logging.info(f"Inter residues atoms contacts CSV saved: {out_path}")
 
     return contacts_stat
 
 
-def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt, roi_hm=None):
+def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt, roi_hm):
     """
     Create the heat map of contacts between residues.
 
@@ -374,12 +377,14 @@ def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt, roi
     :param roi_hm: the coordinates of the boundaries of the region to display, i.e: 682-850
     :type roi_hm: str
     """
+    roi_str = f" on region of interest {roi_hm}" if roi_hm else ""
+    logging.info(f"Heat maps contacts{roi_str}:")
     donor_acceptor = {}
     for _, row in df.iterrows():
         donor = None
         if roi_hm:
             roi_split = roi_hm.split("-")
-            if int(roi_split[1]) >= row["donor position"] >= int(roi_split[0]):
+            if int(roi_split[1]) >= int(row["donor position"]) >= int(roi_split[0]):
                 donor = f"{row['donor position']}{row['donor residue']}"
         else:
             donor = f"{row['donor position']}{row['donor residue']}"
@@ -406,39 +411,44 @@ def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt, roi
     # get the heat map
     source = pd.DataFrame({"acceptors": acceptors, "donors": donors, "number of contacts": nb_contacts,
                            stat_col: min_distances})
-
-    mask_in_title = f" with mask {mask}" if mask else ""
-    heatmap = alt.Chart(data=source).mark_rect().encode(
-        x=alt.X("acceptors", type="nominal", sort=None),
-        y=alt.Y("donors", type="nominal", sort=None),
-        color=alt.Color(stat_col, type="quantitative", title="Distance (\u212B)", sort="descending",
-                        scale=alt.Scale(scheme="yelloworangered"))
-    ).properties(
-        title={
-            "text": f"Contact residues {stat_col.replace('_', ' ')}: {out_basename}{mask_in_title}",
-            "subtitle": ["Number of contacts displayed in the squares",
-                         f"Donor region of interest:\t{roi_hm}" if roi_hm else ""],
-            "subtitleColor": "gray"
-        },
-        width=600,
-        height=400
-    )
-    # Configure the text with the number of contacts
-    switch_color = min(source[stat_col]) + (max(source[stat_col]) - min(source[stat_col])) / 2
-    text = heatmap.mark_text(baseline="middle").encode(
-        text=alt.Text("number of contacts"),
-        color=alt.condition(
-            f"datum.{stat_col} > {switch_color}",
-            alt.value("black"),
-            alt.value("white")
+    if len(source[stat_col]) == 0:
+        if roi_hm:
+            logging.error(f"no inter residues polar contacts for the region of interest {roi_hm}, no heatmap created.")
+        else:
+            logging.error(f"no inter residues polar contacts, no heatmap created.")
+    else:
+        mask_in_title = f" with mask selection {mask}" if mask else ""
+        heatmap = alt.Chart(data=source).mark_rect().encode(
+            x=alt.X("acceptors", type="nominal", sort=None),
+            y=alt.Y("donors", type="nominal", sort=None),
+            color=alt.Color(stat_col, type="quantitative", title="Distance (\u212B)", sort="descending",
+                            scale=alt.Scale(scheme="yelloworangered"))
+        ).properties(
+            title={
+                "text": f"Contact residues {stat_col.replace('_', ' ')}: {out_basename}{mask_in_title}",
+                "subtitle": ["Number of contacts displayed in the squares",
+                             f"Donor region of interest:\t{roi_hm}" if roi_hm else ""],
+                "subtitleColor": "gray"
+            },
+            width=600,
+            height=400
         )
-    )
-    plot = heatmap + text
-    mask_str = f"_{mask}" if mask else ""
-    out_path = os.path.join(out_dir, f"heatmap_{stat_col.replace(' ', '-')}_{out_basename}{mask_str}.{output_fmt}")
-    plot.save(out_path)
-    # heatmap.save(out_path)
-    logging.info(f"\t{stat_col} heat map saved: {out_path}")
+        # Configure the text with the number of contacts
+        switch_color = min(source[stat_col]) + (max(source[stat_col]) - min(source[stat_col])) / 2
+        text = heatmap.mark_text(baseline="middle").encode(
+            text=alt.Text("number of contacts"),
+            color=alt.condition(
+                f"datum.{stat_col} > {switch_color}",
+                alt.value("black"),
+                alt.value("white")
+            )
+        )
+        plot = heatmap + text
+        mask_str = f"_{mask}" if mask else ""
+        out_path = os.path.join(out_dir, f"heatmap_{stat_col.replace(' ', '-')}_{out_basename}{mask_str}.{output_fmt}")
+        plot.save(out_path)
+        # heatmap.save(out_path)
+        logging.info(f"\t{stat_col} heat map saved: {out_path}")
 
 
 if __name__ == "__main__":
@@ -462,8 +472,9 @@ if __name__ == "__main__":
                         help="the path to the molecular dynamics topology file.")
     parser.add_argument("-m", "--mask", required=False, type=str, help="the mask selection.")
     parser.add_argument("-r", "--roi-hm", required=False, type=str,
-                        help="the boundaries of the region to display in the heatmap, should be for example "
-                             "--roi 682-850")
+                        help="the boundaries of the region to display in the heatmap within the mask selection if any. "
+                             "In example if the mask '@CA,C,682-850' is applied and the region of interest for the "
+                             "heatmap is '--roi 35-39', only positions 717 to 721 will be displayed in the heatmap.")
     parser.add_argument("-f", "--output-format", required=False, choices=["svg", "png", "html", "pdf"], default="html",
                         help="the output plots format, if not used the default is HTML.")
     parser.add_argument("-d", "--distance-contacts", required=False, type=float, default=3.0,
@@ -524,13 +535,11 @@ if __name__ == "__main__":
                                  args.output_format)
 
     # write the CSV for the contacts
-    stats = contacts_csv(data_h_bonds, os.path.join(args.out, f"contacts_{basename}.csv"), pattern_contact)
+    stats = contacts_csv(data_h_bonds, args.out, pattern_contact, args.mask)
 
     # get the heat maps of validated contacts by residues for each column of the statistics dataframe
-    logging.info("Heat maps contacts:")
     for stat_column_id in stats.columns[5:]:
-        heat_map_contacts(stats, stat_column_id, basename, args.out, args.output_format, args.roi_hm)
-        heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt, roi_hm=None)
+        heat_map_contacts(stats, stat_column_id, basename, args.mask, args.out, args.output_format, args.roi_hm)
 
     # clean the geckodriver log file
     path_geckodriver_log = os.path.join(args.out, "geckodriver.log")
