@@ -306,7 +306,7 @@ def plot_individual_contacts(df, out_dir, out_basename, dist_thr, mask, format_o
         logging.info(f"\t{nb_plots}/{nb_used_contacts} inter residues atoms contacts plot saved: {out_path_plot}")
 
 
-def contacts_csv(df, out_dir, pattern, mask):
+def contacts_csv(df, out_dir, out_basename, pattern, mask):
     """
     Get the mean and median distances for the contacts in the whole molecular dynamics simulation and in the second
     half of the simulation.
@@ -315,6 +315,8 @@ def contacts_csv(df, out_dir, pattern, mask):
     :type df: pd.DataFrame
     :param out_dir: the directory output path.
     :type out_dir: str
+    :param out_basename: the basename.
+    :type out_basename: str
     :param pattern: the pattern for the contact.
     :type pattern: re.pattern
     :param mask: the selection mask.
@@ -351,7 +353,7 @@ def contacts_csv(df, out_dir, pattern, mask):
         data["mean_distance_whole"].append(round(statistics.mean(df.loc[:, contact_id]), 2))
         data["median_distance_whole"].append(round(statistics.median(df.loc[:, contact_id]), 2))
     contacts_stat = pd.DataFrame(data)
-    out_path = os.path.join(out_dir, f"contacts_{basename}_{mask}.csv" if mask else f"contacts_{basename}.csv")
+    out_path = os.path.join(out_dir, f"contacts_{out_basename}_{mask}.csv" if mask else f"contacts_{out_basename}.csv")
     contacts_stat.to_csv(out_path, index=False)
     logging.info(f"Inter residues atoms contacts CSV saved: {out_path}")
 
@@ -535,7 +537,7 @@ if __name__ == "__main__":
                                  args.output_format)
 
     # write the CSV for the contacts
-    stats = contacts_csv(data_h_bonds, args.out, pattern_contact, args.mask)
+    stats = contacts_csv(data_h_bonds, args.out, basename, pattern_contact, args.mask)
 
     # get the heat maps of validated contacts by residues for each column of the statistics dataframe
     for stat_column_id in stats.columns[5:]:
