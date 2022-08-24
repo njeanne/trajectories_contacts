@@ -10,6 +10,7 @@ __email__ = "jeanne.n@chu-toulouse.fr"
 __version__ = "1.0.0"
 
 import argparse
+import collections
 import logging
 import os
 import re
@@ -19,6 +20,7 @@ import sys
 import altair as alt
 import pandas as pd
 import pytraj as pt
+import seaborn as sns
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "references"))
 import polarPairs
@@ -358,6 +360,98 @@ def contacts_csv(df, out_dir, pattern, mask):
     return contacts_stat
 
 
+# def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt, roi_hm):
+#     """
+#     Create the heat map of contacts between residues.
+#
+#     :param df: the statistics dataframe.
+#     :type df: pd.DataFrame
+#     :param stat_col: the column in the dataframe to get the distances.
+#     :type stat_col: str
+#     :param out_basename: the basename.
+#     :type out_basename: str
+#     :param mask: the selection mask
+#     :type mask: str
+#     :param out_dir: the output directory.
+#     :type out_dir: str
+#     :param output_fmt: the output format for the heat map.
+#     :type output_fmt: str
+#     :param roi_hm: the coordinates of the boundaries of the region to display, i.e: 682-850
+#     :type roi_hm: str
+#     """
+#     roi_str = f" on region of interest {roi_hm}" if roi_hm else ""
+#     logging.info(f"Heat maps contacts{roi_str}:")
+#     donor_acceptor = {}
+#     for _, row in df.iterrows():
+#         donor = None
+#         if roi_hm:
+#             roi_split = roi_hm.split("-")
+#             if int(roi_split[1]) >= int(row["donor position"]) >= int(roi_split[0]):
+#                 donor = f"{row['donor position']}{row['donor residue']}"
+#         else:
+#             donor = f"{row['donor position']}{row['donor residue']}"
+#         if donor:
+#             acceptor = f"{row['acceptor position']}{row['acceptor residue']}"
+#             if donor in donor_acceptor:
+#                 if acceptor in donor_acceptor[donor]:
+#                     donor_acceptor[donor][acceptor].append(row[stat_col])
+#                 else:
+#                     donor_acceptor[donor][acceptor] = [row[stat_col]]
+#             else:
+#                 donor_acceptor[donor] = {acceptor: [row[stat_col]]}
+#     donors = []
+#     acceptors = []
+#     nb_contacts = []
+#     min_distances = []
+#     for donor in donor_acceptor:
+#         donors = donors + [donor] * len(donor_acceptor[donor])
+#         for acceptor in donor_acceptor[donor]:
+#             acceptors.append(acceptor)
+#             nb_contacts.append(len(donor_acceptor[donor][acceptor]))
+#             min_distances.append(min(donor_acceptor[donor][acceptor]))
+#
+#     # get the heat map
+#     source = pd.DataFrame({"acceptors": acceptors, "donors": donors, "number of contacts": nb_contacts,
+#                            stat_col: min_distances})
+#     if len(source[stat_col]) == 0:
+#         if roi_hm:
+#             logging.error(f"no inter residues polar contacts for the region of interest {roi_hm}, no heatmap created.")
+#         else:
+#             logging.error(f"no inter residues polar contacts, no heatmap created.")
+#     else:
+#         mask_in_title = f" with mask selection {mask}" if mask else ""
+#         heatmap = alt.Chart(data=source).mark_rect().encode(
+#             x=alt.X("acceptors", type="nominal", sort=None),
+#             y=alt.Y("donors", type="nominal", sort=None),
+#             color=alt.Color(stat_col, type="quantitative", title="Distance (\u212B)", sort="descending",
+#                             scale=alt.Scale(scheme="yelloworangered"))
+#         ).properties(
+#             title={
+#                 "text": f"Contact residues {stat_col.replace('_', ' ')}: {out_basename}{mask_in_title}",
+#                 "subtitle": ["Number of contacts displayed in the squares",
+#                              f"Donor region of interest:\t{roi_hm}" if roi_hm else ""],
+#                 "subtitleColor": "gray"
+#             },
+#             width=600,
+#             height=400
+#         )
+#         # Configure the text with the number of contacts
+#         switch_color = min(source[stat_col]) + (max(source[stat_col]) - min(source[stat_col])) / 2
+#         text = heatmap.mark_text(baseline="middle").encode(
+#             text=alt.Text("number of contacts"),
+#             color=alt.condition(
+#                 f"datum.{stat_col} > {switch_color}",
+#                 alt.value("black"),
+#                 alt.value("white")
+#             )
+#         )
+#         plot = heatmap + text
+#         mask_str = f"_{mask}" if mask else ""
+#         out_path = os.path.join(out_dir, f"heatmap_{stat_col.replace(' ', '-')}_{out_basename}{mask_str}.{output_fmt}")
+#         plot.save(out_path)
+#         # heatmap.save(out_path)
+#         logging.info(f"\t{stat_col} heat map saved: {out_path}")
+
 def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt, roi_hm):
     """
     Create the heat map of contacts between residues.
@@ -377,79 +471,166 @@ def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt, roi
     :param roi_hm: the coordinates of the boundaries of the region to display, i.e: 682-850
     :type roi_hm: str
     """
-    roi_str = f" on region of interest {roi_hm}" if roi_hm else ""
-    logging.info(f"Heat maps contacts{roi_str}:")
-    donor_acceptor = {}
+    # roi_str = f" on region of interest {roi_hm}" if roi_hm else ""
+    # logging.info(f"Heat maps contacts{roi_str}:")
+    logging.info(f"Heat maps contacts{f' on region of interest {roi_hm}' if roi_hm else ''}:")
+    # select rows of the dataframe if limits for the heat map were set
+    if roi_hm:
+        roi_split = roi_hm.split("-")
+        low_limit = int(roi_split[0])
+        high_limit = int(roi_split[1])
+        df = df[df["donor position"].between(low_limit, high_limit)]
+        print(df)
+        print(len(df))
+
+    # donors_acceptors is used to register the combination of donor and acceptor and select only the value with the
+    # minimal contact distance and also the number of contacts
+    donors_acceptors = []
+    idx_to_remove = []
+    donor_acceptor_nb_contacts = []
     for _, row in df.iterrows():
-        donor = None
-        if roi_hm:
-            roi_split = roi_hm.split("-")
-            if int(roi_split[1]) >= int(row["donor position"]) >= int(roi_split[0]):
-                donor = f"{row['donor position']}{row['donor residue']}"
-        else:
-            donor = f"{row['donor position']}{row['donor residue']}"
-        if donor:
-            acceptor = f"{row['acceptor position']}{row['acceptor residue']}"
-            if donor in donor_acceptor:
-                if acceptor in donor_acceptor[donor]:
-                    donor_acceptor[donor][acceptor].append(row[stat_col])
-                else:
-                    donor_acceptor[donor][acceptor] = [row[stat_col]]
-            else:
-                donor_acceptor[donor] = {acceptor: [row[stat_col]]}
+        donor = f"{row['donor position']}{row['donor residue']}"
+        acceptor = f"{row['acceptor position']}{row['acceptor residue']}"
+        if f"{donor}_{acceptor}" not in donors_acceptors:
+            donors_acceptors.append(f"{donor}_{acceptor}")
+            tmp_df = df[
+                (df["donor position"] == row["donor position"]) & (df["acceptor position"] == row["acceptor position"])]
+            # get the index of the minimal distance
+            idx_min = tmp_df[[stat_col]].idxmin()
+            # record the index to remove of the other rows of the same donor - acceptor positions
+            tmp_index_to_remove = list(tmp_df.index.drop(idx_min))
+            if tmp_index_to_remove:
+                idx_to_remove = idx_to_remove + tmp_index_to_remove
+            donor_acceptor_nb_contacts.append(len(tmp_df.index))
+    df = df.drop(idx_to_remove)
+    df["number contacts"] = donor_acceptor_nb_contacts
+    print(df)
+    print(len(df))
+
+    # create the dictionaries of distances and number of contacts
+    distances = {}
+    nb_contacts = {}
     donors = []
-    acceptors = []
-    nb_contacts = []
-    min_distances = []
-    for donor in donor_acceptor:
-        donors = donors + [donor] * len(donor_acceptor[donor])
-        for acceptor in donor_acceptor[donor]:
-            acceptors.append(acceptor)
-            nb_contacts.append(len(donor_acceptor[donor][acceptor]))
-            min_distances.append(min(donor_acceptor[donor][acceptor]))
+    unique_donor_positions = sorted(list(set(df["donor position"])))
+    print(unique_donor_positions)
+    for unique_donor_position in unique_donor_positions:
+        for idx, row in df.iterrows():
+            donor = f"{row['donor position']}{row['donor residue']}"
+            if donor not in donors:
+                donors.append(donor)
+            if unique_donor_position not in distances:
+                distances[unique_donor_position] = {}
+            if row["acceptor position"] not in distances[unique_donor_position]:
+                distances[unique_donor_position][row["acceptor position"]] = []
+            if row["donor position"] == unique_donor_position:
+                distances[unique_donor_position][row["acceptor position"]].append(row[stat_col])
+            else:
+                distances[unique_donor_position][row["acceptor position"]].append(None)
 
-    # get the heat map
-    source = pd.DataFrame({"acceptors": acceptors, "donors": donors, "number of contacts": nb_contacts,
-                           stat_col: min_distances})
-    if len(source[stat_col]) == 0:
-        if roi_hm:
-            logging.error(f"no inter residues polar contacts for the region of interest {roi_hm}, no heatmap created.")
-        else:
-            logging.error(f"no inter residues polar contacts, no heatmap created.")
-    else:
-        mask_in_title = f" with mask selection {mask}" if mask else ""
-        heatmap = alt.Chart(data=source).mark_rect().encode(
-            x=alt.X("acceptors", type="nominal", sort=None),
-            y=alt.Y("donors", type="nominal", sort=None),
-            color=alt.Color(stat_col, type="quantitative", title="Distance (\u212B)", sort="descending",
-                            scale=alt.Scale(scheme="yelloworangered"))
-        ).properties(
-            title={
-                "text": f"Contact residues {stat_col.replace('_', ' ')}: {out_basename}{mask_in_title}",
-                "subtitle": ["Number of contacts displayed in the squares",
-                             f"Donor region of interest:\t{roi_hm}" if roi_hm else ""],
-                "subtitleColor": "gray"
-            },
-            width=600,
-            height=400
-        )
-        # Configure the text with the number of contacts
-        switch_color = min(source[stat_col]) + (max(source[stat_col]) - min(source[stat_col])) / 2
-        text = heatmap.mark_text(baseline="middle").encode(
-            text=alt.Text("number of contacts"),
-            color=alt.condition(
-                f"datum.{stat_col} > {switch_color}",
-                alt.value("black"),
-                alt.value("white")
-            )
-        )
-        plot = heatmap + text
-        mask_str = f"_{mask}" if mask else ""
-        out_path = os.path.join(out_dir, f"heatmap_{stat_col.replace(' ', '-')}_{out_basename}{mask_str}.{output_fmt}")
-        plot.save(out_path)
-        # heatmap.save(out_path)
-        logging.info(f"\t{stat_col} heat map saved: {out_path}")
 
+    print(donors)
+    distances = dict(sorted(distances.items()))
+    for k, v in distances.items():
+        print(f"{k}:")
+        for k1, v1 in v.items():
+            print(f"\t{k1}: {len(v1)}\n\t\t{v1}")
+    # print(distances)
+    print(len(donors))
+    source = pd.DataFrame(distances)
+    print(source)
+    # print(len(df))
+    # print(len(donors))
+
+
+
+    #         # fill the distances and number of contacts
+    #         distances[row["acceptor position"]] = []
+    #         nb_contacts[row["acceptor position"]] = []
+    #         for idx_2 in df.index.values.tolist():
+    #             if idx_2 in tmp_df.index.values.tolist():
+    #                 if idx_2 == idx_min.values[0]:
+    #                     distances[row["acceptor position"]].append(min_dist)
+    #                     nb_contacts[row["acceptor position"]].append(len(tmp_df.index))
+    #             else:
+    #                 distances[row["acceptor position"]].append(None)
+    #                 nb_contacts[row["acceptor position"]].append(None)
+    #
+
+
+
+    sys.exit()
+
+
+    #     donor = f"{row['donor position']}{row['donor residue']}"
+    #     if donor not in donors:
+    #         donors.append(donor)
+    #
+    #
+    #
+    #     if row["donor position"] != pos_donor and acceptor != f"{row['acceptor position']}{row['acceptor residue']}":
+    #
+    #     if donor !=
+    #     donors.append(donor)
+    #     acceptors.append(acceptor)
+    #     if donor in donor_acceptor:
+    #         if acceptor in donor_acceptor[donor]:
+    #             donor_acceptor[donor][acceptor].append(row[stat_col])
+    #         else:
+    #             donor_acceptor[donor][acceptor] = [row[stat_col]]
+    #     else:
+    #         donor_acceptor[donor] = {acceptor: [row[stat_col]]}
+    # donors = []
+    # acceptors = []
+    # nb_contacts = []
+    # min_distances = []
+    # for donor in donor_acceptor:
+    #     donors = donors + [donor] * len(donor_acceptor[donor])
+    #     for acceptor in donor_acceptor[donor]:
+    #         acceptors.append(acceptor)
+    #         nb_contacts.append(len(donor_acceptor[donor][acceptor]))
+    #         min_distances.append(min(donor_acceptor[donor][acceptor]))
+    #
+    # # get the heat map
+    # source = pd.DataFrame({"acceptors": acceptors, "donors": donors, "number of contacts": nb_contacts,
+    #                        stat_col: min_distances})
+    # if len(source[stat_col]) == 0:
+    #     if roi_hm:
+    #         logging.error(f"no inter residues polar contacts for the region of interest {roi_hm}, no heatmap created.")
+    #     else:
+    #         logging.error(f"no inter residues polar contacts, no heatmap created.")
+    # else:
+    #     mask_in_title = f" with mask selection {mask}" if mask else ""
+    #     heatmap = alt.Chart(data=source).mark_rect().encode(
+    #         x=alt.X("acceptors", type="nominal", sort=None),
+    #         y=alt.Y("donors", type="nominal", sort=None),
+    #         color=alt.Color(stat_col, type="quantitative", title="Distance (\u212B)", sort="descending",
+    #                         scale=alt.Scale(scheme="yelloworangered"))
+    #     ).properties(
+    #         title={
+    #             "text": f"Contact residues {stat_col.replace('_', ' ')}: {out_basename}{mask_in_title}",
+    #             "subtitle": ["Number of contacts displayed in the squares",
+    #                          f"Donor region of interest:\t{roi_hm}" if roi_hm else ""],
+    #             "subtitleColor": "gray"
+    #         },
+    #         width=600,
+    #         height=400
+    #     )
+    #     # Configure the text with the number of contacts
+    #     switch_color = min(source[stat_col]) + (max(source[stat_col]) - min(source[stat_col])) / 2
+    #     text = heatmap.mark_text(baseline="middle").encode(
+    #         text=alt.Text("number of contacts"),
+    #         color=alt.condition(
+    #             f"datum.{stat_col} > {switch_color}",
+    #             alt.value("black"),
+    #             alt.value("white")
+    #         )
+    #     )
+    #     plot = heatmap + text
+    #     mask_str = f"_{mask}" if mask else ""
+    #     out_path = os.path.join(out_dir, f"heatmap_{stat_col.replace(' ', '-')}_{out_basename}{mask_str}.{output_fmt}")
+    #     plot.save(out_path)
+    #     # heatmap.save(out_path)
+    #     logging.info(f"\t{stat_col} heat map saved: {out_path}")
 
 if __name__ == "__main__":
     descr = f"""
@@ -510,34 +691,36 @@ if __name__ == "__main__":
     logging.info(f"minimal threshold for number of frames atoms contacts between two different residues in the second "
                  f"half of the simulation: {args.second_half_percent:.1f}%")
 
-    # load the trajectory
-    try:
-        trajectory = load_trajectory(args.input, args.topology, args.mask)
-    except RuntimeError as exc:
-        logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists. \
-        {exc}")
-        sys.exit(1)
-    except ValueError as exc:
-        logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists. \
-        {exc}")
-        sys.exit(1)
+    # # load the trajectory
+    # try:
+    #     trajectory = load_trajectory(args.input, args.topology, args.mask)
+    # except RuntimeError as exc:
+    #     logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists. \
+    #     {exc}")
+    #     sys.exit(1)
+    # except ValueError as exc:
+    #     logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists. \
+    #     {exc}")
+    #     sys.exit(1)
 
     # compute RMSD and create the plot
     basename = os.path.splitext(os.path.basename(args.input))[0]
-    rmsd(trajectory, args.out, basename, args.mask, args.output_format)
+    # rmsd(trajectory, args.out, basename, args.mask, args.output_format)
 
     # find Hydrogen bonds
-    pattern_contact = re.compile("(\\D{3})(\\d+).+-(\\D{3})(\\d+)")
-    data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.second_half_percent, pattern_contact)
-    if args.individual_plots:
-        # plot individual contacts
-        plot_individual_contacts(data_h_bonds, args.out, basename, args.distance_contacts, args.mask,
-                                 args.output_format)
-
-    # write the CSV for the contacts
-    stats = contacts_csv(data_h_bonds, args.out, pattern_contact, args.mask)
+    # pattern_contact = re.compile("(\\D{3})(\\d+).+-(\\D{3})(\\d+)")
+    # data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.second_half_percent, pattern_contact)
+    # if args.individual_plots:
+    #     # plot individual contacts
+    #     plot_individual_contacts(data_h_bonds, args.out, basename, args.distance_contacts, args.mask,
+    #                              args.output_format)
+    #
+    # # write the CSV for the contacts
+    # stats = contacts_csv(data_h_bonds, args.out, pattern_contact, args.mask)
 
     # get the heat maps of validated contacts by residues for each column of the statistics dataframe
+    # todo: remove load
+    stats = pd.read_csv(os.path.join(args.out, f"contacts_{basename}_{args.mask}.csv" if args.mask else f"contacts_{basename}.csv"))
     for stat_column_id in stats.columns[5:]:
         heat_map_contacts(stats, stat_column_id, basename, args.mask, args.out, args.output_format, args.roi_hm)
 
