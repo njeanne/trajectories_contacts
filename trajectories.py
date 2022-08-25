@@ -252,59 +252,28 @@ def plot_individual_contacts(df, out_dir, out_basename, dist_thr, mask, format_o
     :param format_output: the output format for the plots.
     :type format_output: str
     """
-    contacts_plots_solo_dir = os.path.join(out_dir, "contacts_individual", "solo")
-    os.makedirs(contacts_plots_solo_dir, exist_ok=True)
-    contacts_plots_merged_dir = os.path.join(out_dir, "contacts_individual", "merged")
-    os.makedirs(contacts_plots_merged_dir, exist_ok=True)
+    contacts_plots_dir = os.path.join(out_dir, "contacts_individual")
+    os.makedirs(contacts_plots_dir, exist_ok=True)
 
     # plot all the contacts
     nb_used_contacts = len(df.columns[1:])
-    plots = []
     nb_plots = 0
-    nb_merged_plots = 1
-    basename_merged = f"contacts_{out_basename}_{mask}" if mask else f"contacts_{out_basename}"
     for contact_id in df.columns[1:]:
         source = df[["frames", contact_id]]
-        contact_plot = alt.Chart(data=source).mark_circle().encode(
-            x=alt.X("frames", title="Frame"),
-            y=alt.Y(contact_id, title="distance (\u212B)")
-        ).properties(
-            title={"text": f"Contact: {contact_id}"},
-            width=400,
-            height=260
-        )
-        # add a distance threshold line
-        h_line = alt.Chart().mark_rule(color="red").encode(y=alt.datum(dist_thr))
-        contact_plot = contact_plot + h_line
-        # save the plot of the contact
-        path_solo = os.path.join(contacts_plots_solo_dir,
-                                 f"{out_basename}_{contact_id}_{'_'+mask if mask else ''}.{format_output}")
-        contact_plot.save(path_solo)
-        # add the plot to the list to create a whole picture
+        scattered_plot = sns.scatterplot(data=source, x="frames", y=contact_id)
+        plot = scattered_plot.get_figure()
+        title = f"Contact: {contact_id}"
+        plt.suptitle(title, fontsize="large", fontweight="bold")
+        plt.xlabel("Frames", fontweight="bold")
+        plt.ylabel("distance (\u212B)", fontweight="bold")
+        # add the threshold horizontal line
+        scattered_plot.axhline(dist_thr, color="red")
+        out_path = os.path.join(contacts_plots_dir, f"{out_basename}_{contact_id}.{format_output}")
+        plot.savefig(out_path)
         nb_plots += 1
-        plots.append(contact_plot)
-
-        # create the merged plot if 15 plots are present in the list
-        if nb_plots % 15 == 0:
-            # merge the plots by row of 3
-            contacts_plots = alt.concat(*plots, columns=3)
-            # save the plot
-            out_path_plot = os.path.join(contacts_plots_merged_dir,
-                                         f"{basename_merged}_{nb_merged_plots}.{format_output}")
-            contacts_plots.save(out_path_plot)
-            logging.info(f"\t{nb_plots}/{nb_used_contacts} inter residues atoms contacts plot saved: "
-                         f"{out_path_plot}")
-            plots = []
-            nb_merged_plots += 1
-
-    # merge the remaining plots by row of 3 and save them
-    if plots:
-        contacts_plots = alt.concat(*plots, columns=3)
-        # save the plot
-        out_path_plot = os.path.join(contacts_plots_merged_dir,
-                                     f"{basename_merged}_{nb_merged_plots}.{format_output}")
-        contacts_plots.save(out_path_plot)
-        logging.info(f"\t{nb_plots}/{nb_used_contacts} inter residues atoms contacts plot saved: {out_path_plot}")
+        # clear the plot for the next use of the function
+        plt.clf()
+        logging.info(f"\t{nb_plots}/{nb_used_contacts} inter residues atoms contacts plot saved: {out_path}")
 
 
 def contacts_csv(df, out_dir, pattern, mask):
@@ -547,24 +516,18 @@ if __name__ == "__main__":
     rmsd(trajectory, args.out, basename, args.mask, args.output_format)
 
     # find the Hydrogen bonds
-    # pattern_contact = re.compile("(\\D{3})(\\d+).+-(\\D{3})(\\d+)")
-    # data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.second_half_percent, pattern_contact)
-    # if args.individual_plots:
-    #     # plot individual contacts
-    #     plot_individual_contacts(data_h_bonds, args.out, basename, args.distance_contacts, args.mask,
-    #                              args.output_format)
-    #
+    pattern_contact = re.compile("(\\D{3})(\\d+).+-(\\D{3})(\\d+)")
+    data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.second_half_percent, pattern_contact)
+    if args.individual_plots:
+        # plot individual contacts
+        plot_individual_contacts(data_h_bonds, args.out, basename, args.distance_contacts, args.mask,
+                                 args.output_format)
+
     # # write the CSV for the contacts
-    # stats = contacts_csv(data_h_bonds, args.out, pattern_contact, args.mask)
+    stats = contacts_csv(data_h_bonds, args.out, pattern_contact, args.mask)
 
     # get the heat maps of validated contacts by residues for each column of the statistics dataframe
     # todo: remove load
     stats = pd.read_csv(os.path.join(args.out, f"contacts_{basename}_{args.mask}.csv" if args.mask else f"contacts_{basename}.csv"))
     for stat_column_id in stats.columns[5:]:
         heat_map_contacts(stats, stat_column_id, basename, args.mask, args.out, args.output_format, args.roi_hm)
-
-    # todo: remove
-    # clean the geckodriver log file
-    path_geckodriver_log = os.path.join(args.out, "geckodriver.log")
-    if os.path.exists(path_geckodriver_log):
-        os.remove(path_geckodriver_log)
