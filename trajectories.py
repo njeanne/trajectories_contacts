@@ -450,13 +450,15 @@ def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt, roi
     source_nb_contacts.columns = acceptors
 
     # get the heat map
-    heatmap = sns.heatmap(source_distances, annot=source_nb_contacts, linewidths=0.5)
+    heatmap = sns.heatmap(source_distances, annot=source_nb_contacts, cbar_kws={"label": "Distance (\u212B)"},
+                          linewidths=0.5)
+    heatmap.figure.axes[-1].yaxis.label.set_size(15)
     plot = heatmap.get_figure()
     mask_in_title = f" with mask selection {mask}" if mask else ""
     title = f"Contact residues {stat_col.replace('_', ' ')}: {out_basename}{mask_in_title}"
     plt.suptitle(title, fontsize="large", fontweight="bold")
     mask_subtitle = "\nMask:\t{mask}" if mask else ""
-    plt.title(f"Number of contacts displayed in the squares{mask_subtitle}")
+    plt.title(f"Number of residues atoms in contact displayed in the squares{mask_subtitle}")
     plt.xlabel("Acceptors", fontweight="bold")
     plt.ylabel("Donors", fontweight="bold")
     mask_str = f"_{mask}" if mask else ""
