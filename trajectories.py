@@ -117,21 +117,19 @@ def rmsd(traj, out_dir, out_basename, mask, format_output):
     """
     rmsd_traj = pt.rmsd(traj, ref=0)
     source = pd.DataFrame({"frames": range(traj.n_frames), "RMSD": rmsd_traj})
-    rmsd_plot = alt.Chart(data=source).mark_line().encode(
-        x=alt.X("frames", title="Frame"),
-        y=alt.Y("RMSD", title="RMSD (\u212B)")
-    ).properties(
-        title={
-            "text": f"Root Mean Square Deviation: {out_basename}",
-            "subtitle": [f"Mask:\t{mask}" if mask else ""],
-            "subtitleColor": "gray"
-        },
-        width=600,
-        height=400
-    )
+    rmsd_ax = sns.lineplot(data=source, x="frames", y="RMSD")
+    plot = rmsd_ax.get_figure()
+    mask_in_title = f" with mask selection {mask}" if mask else ""
+    title = f"Root Mean Square Deviation: {out_basename}{mask_in_title}"
+    plt.suptitle(title, fontsize="large", fontweight="bold")
+    plt.title("Mask:\t{mask}" if mask else "")
+    plt.xlabel("Frame", fontweight="bold")
+    plt.ylabel("RMSD (\u212B)", fontweight="bold")
     basename_plot_path = os.path.join(out_dir, f"RMSD_{out_basename}_{mask}" if mask else f"RMSD_{out_basename}")
     out_path = f"{basename_plot_path}.{format_output}"
-    rmsd_plot.save(out_path)
+    plot.savefig(out_path)
+    # clear the plot for the next use of the function
+    plt.clf()
     logging.info(f"RMSD plot saved: {out_path}")
 
 
@@ -532,21 +530,21 @@ if __name__ == "__main__":
     sns.set_theme()
     rcParams['figure.figsize'] = 15, 8
 
-    # # load the trajectory
-    # try:
-    #     trajectory = load_trajectory(args.input, args.topology, args.mask)
-    # except RuntimeError as exc:
-    #     logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists. \
-    #     {exc}")
-    #     sys.exit(1)
-    # except ValueError as exc:
-    #     logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists. \
-    #     {exc}")
-    #     sys.exit(1)
+    # load the trajectory
+    try:
+        trajectory = load_trajectory(args.input, args.topology, args.mask)
+    except RuntimeError as exc:
+        logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists. \
+        {exc}")
+        sys.exit(1)
+    except ValueError as exc:
+        logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists. \
+        {exc}")
+        sys.exit(1)
 
     # compute RMSD and create the plot
     basename = os.path.splitext(os.path.basename(args.input))[0]
-    # rmsd(trajectory, args.out, basename, args.mask, args.output_format)
+    rmsd(trajectory, args.out, basename, args.mask, args.output_format)
 
     # find the Hydrogen bonds
     # pattern_contact = re.compile("(\\D{3})(\\d+).+-(\\D{3})(\\d+)")
