@@ -19,6 +19,9 @@ import sys
 import altair as alt
 import pandas as pd
 import pytraj as pt
+import matplotlib.pyplot as plt
+from matplotlib import rcParams
+import seaborn as sns
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "references"))
 import polarPairs
@@ -114,21 +117,19 @@ def rmsd(traj, out_dir, out_basename, mask, format_output):
     """
     rmsd_traj = pt.rmsd(traj, ref=0)
     source = pd.DataFrame({"frames": range(traj.n_frames), "RMSD": rmsd_traj})
-    rmsd_plot = alt.Chart(data=source).mark_line().encode(
-        x=alt.X("frames", title="Frame"),
-        y=alt.Y("RMSD", title="RMSD (\u212B)")
-    ).properties(
-        title={
-            "text": f"Root Mean Square Deviation: {out_basename}",
-            "subtitle": [f"Mask:\t{mask}" if mask else ""],
-            "subtitleColor": "gray"
-        },
-        width=600,
-        height=400
-    )
+    rmsd_ax = sns.lineplot(data=source, x="frames", y="RMSD")
+    plot = rmsd_ax.get_figure()
+    mask_in_title = f" with mask selection {mask}" if mask else ""
+    title = f"Root Mean Square Deviation: {out_basename}{mask_in_title}"
+    plt.suptitle(title, fontsize="large", fontweight="bold")
+    plt.title("Mask:\t{mask}" if mask else "")
+    plt.xlabel("Frame", fontweight="bold")
+    plt.ylabel("RMSD (\u212B)", fontweight="bold")
     basename_plot_path = os.path.join(out_dir, f"RMSD_{out_basename}_{mask}" if mask else f"RMSD_{out_basename}")
     out_path = f"{basename_plot_path}.{format_output}"
-    rmsd_plot.save(out_path)
+    plot.savefig(out_path)
+    # clear the plot for the next use of the function
+    plt.clf()
     logging.info(f"RMSD plot saved: {out_path}")
 
 
@@ -251,59 +252,28 @@ def plot_individual_contacts(df, out_dir, out_basename, dist_thr, mask, format_o
     :param format_output: the output format for the plots.
     :type format_output: str
     """
-    contacts_plots_solo_dir = os.path.join(out_dir, "contacts_individual", "solo")
-    os.makedirs(contacts_plots_solo_dir, exist_ok=True)
-    contacts_plots_merged_dir = os.path.join(out_dir, "contacts_individual", "merged")
-    os.makedirs(contacts_plots_merged_dir, exist_ok=True)
+    contacts_plots_dir = os.path.join(out_dir, "contacts_individual")
+    os.makedirs(contacts_plots_dir, exist_ok=True)
 
     # plot all the contacts
     nb_used_contacts = len(df.columns[1:])
-    plots = []
     nb_plots = 0
-    nb_merged_plots = 1
-    basename_merged = f"contacts_{out_basename}_{mask}" if mask else f"contacts_{out_basename}"
     for contact_id in df.columns[1:]:
         source = df[["frames", contact_id]]
-        contact_plot = alt.Chart(data=source).mark_circle().encode(
-            x=alt.X("frames", title="Frame"),
-            y=alt.Y(contact_id, title="distance (\u212B)")
-        ).properties(
-            title={"text": f"Contact: {contact_id}"},
-            width=400,
-            height=260
-        )
-        # add a distance threshold line
-        h_line = alt.Chart().mark_rule(color="red").encode(y=alt.datum(dist_thr))
-        contact_plot = contact_plot + h_line
-        # save the plot of the contact
-        path_solo = os.path.join(contacts_plots_solo_dir,
-                                 f"{out_basename}_{contact_id}_{'_'+mask if mask else ''}.{format_output}")
-        contact_plot.save(path_solo)
-        # add the plot to the list to create a whole picture
+        scattered_plot = sns.scatterplot(data=source, x="frames", y=contact_id)
+        plot = scattered_plot.get_figure()
+        title = f"Contact: {contact_id}"
+        plt.suptitle(title, fontsize="large", fontweight="bold")
+        plt.xlabel("Frames", fontweight="bold")
+        plt.ylabel("distance (\u212B)", fontweight="bold")
+        # add the threshold horizontal line
+        scattered_plot.axhline(dist_thr, color="red")
+        out_path = os.path.join(contacts_plots_dir, f"{out_basename}_{contact_id}.{format_output}")
+        plot.savefig(out_path)
         nb_plots += 1
-        plots.append(contact_plot)
-
-        # create the merged plot if 15 plots are present in the list
-        if nb_plots % 15 == 0:
-            # merge the plots by row of 3
-            contacts_plots = alt.concat(*plots, columns=3)
-            # save the plot
-            out_path_plot = os.path.join(contacts_plots_merged_dir,
-                                         f"{basename_merged}_{nb_merged_plots}.{format_output}")
-            contacts_plots.save(out_path_plot)
-            logging.info(f"\t{nb_plots}/{nb_used_contacts} inter residues atoms contacts plot saved: "
-                         f"{out_path_plot}")
-            plots = []
-            nb_merged_plots += 1
-
-    # merge the remaining plots by row of 3 and save them
-    if plots:
-        contacts_plots = alt.concat(*plots, columns=3)
-        # save the plot
-        out_path_plot = os.path.join(contacts_plots_merged_dir,
-                                     f"{basename_merged}_{nb_merged_plots}.{format_output}")
-        contacts_plots.save(out_path_plot)
-        logging.info(f"\t{nb_plots}/{nb_used_contacts} inter residues atoms contacts plot saved: {out_path_plot}")
+        # clear the plot for the next use of the function
+        plt.clf()
+        logging.info(f"\t{nb_plots}/{nb_used_contacts} inter residues atoms contacts plot saved: {out_path}")
 
 
 def contacts_csv(df, out_dir, out_basename, pattern, mask):
@@ -379,78 +349,93 @@ def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt, roi
     :param roi_hm: the coordinates of the boundaries of the region to display, i.e: 682-850
     :type roi_hm: str
     """
-    roi_str = f" on region of interest {roi_hm}" if roi_hm else ""
-    logging.info(f"Heat maps contacts{roi_str}:")
-    donor_acceptor = {}
+    logging.info(f"Heat maps contacts{f' on region of interest {roi_hm}' if roi_hm else ''}:")
+    # select rows of the dataframe if limits for the heat map were set
+    if roi_hm:
+        roi_split = roi_hm.split("-")
+        low_limit = int(roi_split[0])
+        high_limit = int(roi_split[1])
+        df = df[df["donor position"].between(low_limit, high_limit)]
+
+    # donors_acceptors is used to register the combination of donor and acceptor and select only the value with the
+    # minimal contact distance and also the number of contacts
+    donors_acceptors = []
+    idx_to_remove = []
+    donor_acceptor_nb_contacts = []
     for _, row in df.iterrows():
-        donor = None
-        if roi_hm:
-            roi_split = roi_hm.split("-")
-            if int(roi_split[1]) >= int(row["donor position"]) >= int(roi_split[0]):
-                donor = f"{row['donor position']}{row['donor residue']}"
-        else:
-            donor = f"{row['donor position']}{row['donor residue']}"
-        if donor:
-            acceptor = f"{row['acceptor position']}{row['acceptor residue']}"
-            if donor in donor_acceptor:
-                if acceptor in donor_acceptor[donor]:
-                    donor_acceptor[donor][acceptor].append(row[stat_col])
-                else:
-                    donor_acceptor[donor][acceptor] = [row[stat_col]]
-            else:
-                donor_acceptor[donor] = {acceptor: [row[stat_col]]}
+        donor = f"{row['donor position']}{row['donor residue']}"
+        acceptor = f"{row['acceptor position']}{row['acceptor residue']}"
+        if f"{donor}_{acceptor}" not in donors_acceptors:
+            donors_acceptors.append(f"{donor}_{acceptor}")
+            tmp_df = df[
+                (df["donor position"] == row["donor position"]) & (df["acceptor position"] == row["acceptor position"])]
+            # get the index of the minimal distance
+            idx_min = tmp_df[[stat_col]].idxmin()
+            # record the index to remove of the other rows of the same donor - acceptor positions
+            tmp_index_to_remove = list(tmp_df.index.drop(idx_min))
+            if tmp_index_to_remove:
+                idx_to_remove = idx_to_remove + tmp_index_to_remove
+            donor_acceptor_nb_contacts.append(len(tmp_df.index))
+    df = df.drop(idx_to_remove)
+    df["number contacts"] = donor_acceptor_nb_contacts
+
+    # create the dictionaries of distances and number of contacts
+    distances = {}
+    nb_contacts = {}
     donors = []
     acceptors = []
-    nb_contacts = []
-    min_distances = []
-    for donor in donor_acceptor:
-        donors = donors + [donor] * len(donor_acceptor[donor])
-        for acceptor in donor_acceptor[donor]:
-            acceptors.append(acceptor)
-            nb_contacts.append(len(donor_acceptor[donor][acceptor]))
-            min_distances.append(min(donor_acceptor[donor][acceptor]))
+    unique_donor_positions = sorted(list(set(df["donor position"])))
+    unique_acceptor_positions = sorted(list(set(df["acceptor position"])))
+    for donor_position in unique_donor_positions:
+        donor = f"{donor_position}{df.loc[(df['donor position'] == donor_position), 'donor residue'].values[0]}"
+        if donor not in donors:
+            donors.append(donor)
+        for acceptor_position in unique_acceptor_positions:
+            acceptor = f"{acceptor_position}{df.loc[(df['acceptor position'] == acceptor_position), 'acceptor residue'].values[0]}"
+            if acceptor not in acceptors:
+                acceptors.append(acceptor)
+            # get the distance
+            if acceptor_position not in distances:
+                distances[acceptor_position] = []
+            dist = df.loc[(df["donor position"] == donor_position) & (df["acceptor position"] == acceptor_position),
+                          stat_col]
+            if not dist.empty:
+                distances[acceptor_position].append(dist.values[0])
+            else:
+                distances[acceptor_position].append(None)
+            # get the number of contacts
+            if acceptor_position not in nb_contacts:
+                nb_contacts[acceptor_position] = []
+            contacts = df.loc[(df["donor position"] == donor_position) & (df["acceptor position"] == acceptor_position),
+                              "number contacts"]
+            if not contacts.empty:
+                nb_contacts[acceptor_position].append(contacts.values[0])
+            else:
+                nb_contacts[acceptor_position].append(None)
+
+    source_distances = pd.DataFrame(distances, index=donors)
+    source_distances.columns = acceptors
+    source_nb_contacts = pd.DataFrame(nb_contacts, index=donors)
+    source_nb_contacts.columns = acceptors
 
     # get the heat map
-    source = pd.DataFrame({"acceptors": acceptors, "donors": donors, "number of contacts": nb_contacts,
-                           stat_col: min_distances})
-    if len(source[stat_col]) == 0:
-        if roi_hm:
-            logging.error(f"no inter residues polar contacts for the region of interest {roi_hm}, no heatmap created.")
-        else:
-            logging.error(f"no inter residues polar contacts, no heatmap created.")
-    else:
-        mask_in_title = f" with mask selection {mask}" if mask else ""
-        heatmap = alt.Chart(data=source).mark_rect().encode(
-            x=alt.X("acceptors", type="nominal", sort=None),
-            y=alt.Y("donors", type="nominal", sort=None),
-            color=alt.Color(stat_col, type="quantitative", title="Distance (\u212B)", sort="descending",
-                            scale=alt.Scale(scheme="yelloworangered"))
-        ).properties(
-            title={
-                "text": f"Contact residues {stat_col.replace('_', ' ')}: {out_basename}{mask_in_title}",
-                "subtitle": ["Number of contacts displayed in the squares",
-                             f"Donor region of interest:\t{roi_hm}" if roi_hm else ""],
-                "subtitleColor": "gray"
-            },
-            width=600,
-            height=400
-        )
-        # Configure the text with the number of contacts
-        switch_color = min(source[stat_col]) + (max(source[stat_col]) - min(source[stat_col])) / 2
-        text = heatmap.mark_text(baseline="middle").encode(
-            text=alt.Text("number of contacts"),
-            color=alt.condition(
-                f"datum.{stat_col} > {switch_color}",
-                alt.value("black"),
-                alt.value("white")
-            )
-        )
-        plot = heatmap + text
-        mask_str = f"_{mask}" if mask else ""
-        out_path = os.path.join(out_dir, f"heatmap_{stat_col.replace(' ', '-')}_{out_basename}{mask_str}.{output_fmt}")
-        plot.save(out_path)
-        # heatmap.save(out_path)
-        logging.info(f"\t{stat_col} heat map saved: {out_path}")
+    heatmap = sns.heatmap(source_distances, annot=source_nb_contacts, cbar_kws={"label": "Distance (\u212B)"},
+                          linewidths=0.5)
+    heatmap.figure.axes[-1].yaxis.label.set_size(15)
+    plot = heatmap.get_figure()
+    mask_in_title = f" with mask selection {mask}" if mask else ""
+    title = f"Contact residues {stat_col.replace('_', ' ')}: {out_basename}{mask_in_title}"
+    plt.suptitle(title, fontsize="large", fontweight="bold")
+    mask_subtitle = "\nMask:\t{mask}" if mask else ""
+    plt.title(f"Number of residues atoms in contact displayed in the squares{mask_subtitle}")
+    plt.xlabel("Acceptors", fontweight="bold")
+    plt.ylabel("Donors", fontweight="bold")
+    mask_str = f"_{mask}" if mask else ""
+    out_path = os.path.join(out_dir, f"heatmap_{stat_col.replace(' ', '-')}_{out_basename}{mask_str}.{output_fmt}")
+    plot.savefig(out_path)
+    # clear the plot for the next use of the function
+    plt.clf()
+    logging.info(f"\t{stat_col} heat map saved: {out_path}")
 
 
 if __name__ == "__main__":
@@ -512,6 +497,10 @@ if __name__ == "__main__":
     logging.info(f"minimal threshold for number of frames atoms contacts between two different residues in the second "
                  f"half of the simulation: {args.second_half_percent:.1f}%")
 
+    # set the seaborn plots theme and size
+    sns.set_theme()
+    rcParams['figure.figsize'] = 15, 8
+
     # load the trajectory
     try:
         trajectory = load_trajectory(args.input, args.topology, args.mask)
@@ -528,7 +517,7 @@ if __name__ == "__main__":
     basename = os.path.splitext(os.path.basename(args.input))[0]
     rmsd(trajectory, args.out, basename, args.mask, args.output_format)
 
-    # find Hydrogen bonds
+    # find the Hydrogen bonds
     pattern_contact = re.compile("(\\D{3})(\\d+).+-(\\D{3})(\\d+)")
     data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.second_half_percent, pattern_contact)
     if args.individual_plots:
@@ -542,8 +531,3 @@ if __name__ == "__main__":
     # get the heat maps of validated contacts by residues for each column of the statistics dataframe
     for stat_column_id in stats.columns[5:]:
         heat_map_contacts(stats, stat_column_id, basename, args.mask, args.out, args.output_format, args.roi_hm)
-
-    # clean the geckodriver log file
-    path_geckodriver_log = os.path.join(args.out, "geckodriver.log")
-    if os.path.exists(path_geckodriver_log):
-        os.remove(path_geckodriver_log)
