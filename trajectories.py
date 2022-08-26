@@ -16,7 +16,6 @@ import re
 import statistics
 import sys
 
-import altair as alt
 import pandas as pd
 import pytraj as pt
 import matplotlib.pyplot as plt
