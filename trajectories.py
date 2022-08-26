@@ -256,7 +256,7 @@ def plot_individual_contacts(df, out_dir, out_basename, dist_thr, mask, format_o
     os.makedirs(contacts_plots_dir, exist_ok=True)
 
     # plot all the contacts
-    nb_used_contacts = len(df.columns[1:])
+    logging.info("Creating individual plots for inter residues atoms contacts.")
     nb_plots = 0
     for contact_id in df.columns[1:]:
         source = df[["frames", contact_id]]
@@ -273,7 +273,7 @@ def plot_individual_contacts(df, out_dir, out_basename, dist_thr, mask, format_o
         nb_plots += 1
         # clear the plot for the next use of the function
         plt.clf()
-        logging.info(f"\t{nb_plots}/{nb_used_contacts} inter residues atoms contacts plot saved: {out_path}")
+    logging.info(f"\t{nb_plots}/{len(df.columns[1:])} inter residues atoms contacts plot saved in {contacts_plots_dir}")
 
 
 def contacts_csv(df, out_dir, out_basename, pattern, mask):
