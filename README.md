@@ -13,8 +13,3 @@ conda env create -f references/trajectories_env.yml
 # activate the environment
 conda activate trajectories
 ```
-
-If the plots outputs are in another format than `HTML`, some `npm` packages should be installed:
-```shell script
-npm install vega-lite vega-cli canvas
-```
