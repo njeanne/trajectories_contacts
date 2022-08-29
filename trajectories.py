@@ -348,6 +348,8 @@ def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt, roi
     :param roi_hm: the coordinates of the boundaries of the region to display, i.e: 682-850
     :type roi_hm: str
     """
+    # convert the donor position column to int
+    df["donor position"] = pd.to_numeric(df["donor position"])
     logging.info(f"Heat maps contacts{f' on region of interest {roi_hm}' if roi_hm else ''}:")
     # select rows of the dataframe if limits for the heat map were set
     if roi_hm:
