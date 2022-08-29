@@ -507,7 +507,7 @@ if __name__ == "__main__":
 
     # set the seaborn plots theme and size
     sns.set_theme()
-    rcParams['figure.figsize'] = 15, 8
+    rcParams['figure.figsize'] = 15, 15
 
     # load the trajectory
     try:
