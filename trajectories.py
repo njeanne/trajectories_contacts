@@ -463,8 +463,15 @@ if __name__ == "__main__":
                         help="the boundaries of the region to display in the heatmap within the mask selection if any. "
                              "In example if the mask '@CA,C,682-850' is applied and the region of interest for the "
                              "heatmap is '--roi 35-39', only positions 717 to 721 will be displayed in the heatmap.")
-    parser.add_argument("-f", "--output-format", required=False, choices=["svg", "png", "html", "pdf"], default="html",
-                        help="the output plots format, if not used the default is HTML.")
+    parser.add_argument("-f", "--format", required=False, default="svg",
+                        choices=["eps", "jpg", "jpeg", "pdf", "pgf", "png", "ps", "raw", "svg", "svgz", "tif", "tiff"],
+                        help="the output plots format: 'eps': 'Encapsulated Postscript', "
+                             "'jpg': 'Joint Photographic Experts Group', 'jpeg': 'Joint Photographic Experts Group', "
+                             "'pdf': 'Portable Document Format', 'pgf': 'PGF code for LaTeX', "
+                             "'png': 'Portable Network Graphics', 'ps': 'Postscript', 'raw': 'Raw RGBA bitmap', "
+                             "'rgba': 'Raw RGBA bitmap', 'svg': 'Scalable Vector Graphics', "
+                             "'svgz': 'Scalable Vector Graphics', 'tif': 'Tagged Image File Format', "
+                             "'tiff': 'Tagged Image File Format'. Default is 'svg'.")
     parser.add_argument("-d", "--distance-contacts", required=False, type=float, default=3.0,
                         help="the contacts distances threshold, default is 3.0 Angstroms.")
     parser.add_argument("-s", "--second-half-percent", required=False, type=restricted_float, default=20.0,
@@ -516,19 +523,18 @@ if __name__ == "__main__":
 
     # compute RMSD and create the plot
     basename = os.path.splitext(os.path.basename(args.input))[0]
-    rmsd(trajectory, args.out, basename, args.mask, args.output_format)
+    rmsd(trajectory, args.out, basename, args.mask, args.format)
 
     # find the Hydrogen bonds
     pattern_contact = re.compile("(\\D{3})(\\d+).+-(\\D{3})(\\d+)")
     data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.second_half_percent, pattern_contact)
     if args.individual_plots:
         # plot individual contacts
-        plot_individual_contacts(data_h_bonds, args.out, basename, args.distance_contacts, args.mask,
-                                 args.output_format)
+        plot_individual_contacts(data_h_bonds, args.out, basename, args.distance_contacts, args.mask, args.format)
 
     # write the CSV for the contacts
     stats = contacts_csv(data_h_bonds, args.out, basename, pattern_contact, args.mask)
 
     # get the heat maps of validated contacts by residues for each column of the statistics dataframe
     for stat_column_id in stats.columns[5:]:
-        heat_map_contacts(stats, stat_column_id, basename, args.mask, args.out, args.output_format, args.roi_hm)
+        heat_map_contacts(stats, stat_column_id, basename, args.mask, args.out, args.format, args.roi_hm)
