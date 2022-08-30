@@ -144,7 +144,7 @@ def load_trajectory(trajectory_file, topology_file, mask):
     return traj
 
 
-def rmsd(traj, out_dir, out_basename, mask, format_output):
+def rmsd(traj, out_dir, out_basename, limits, format_output):
     """
     Compute the Root Mean Square Deviation and create the plot.
 
@@ -152,15 +152,15 @@ def rmsd(traj, out_dir, out_basename, mask, format_output):
     :type traj: pt.Trajectory
     :param out_dir: the output directory path
     :type out_dir: str
-    :param out_basename: the plot basename.
+    :param out_basename: the plot and CSV basename.
     :type out_basename: str
-    :param mask: the selection mask.
-    :type mask: str or None
+    :param limits: the mask and heat map region of interest limits.
+    :type limits: dict
     :param format_output: the output format for the plots.
     :type format_output: str
     """
     logging.info("RMSD computation:")
-    path_basename = os.path.join(out_dir, f"RMSD_{out_basename}{'_mask_'+mask if mask else ''}")
+    path_basename = os.path.join(out_dir, f"RMSD_{out_basename}")
     rmsd_traj = pt.rmsd(traj, ref=0)
     source = pd.DataFrame({"frames": range(traj.n_frames), "RMSD": rmsd_traj})
     path_csv = f"{path_basename}.csv"
@@ -170,8 +170,8 @@ def rmsd(traj, out_dir, out_basename, mask, format_output):
     plot = rmsd_ax.get_figure()
     title = f"Root Mean Square Deviation: {out_basename}"
     plt.suptitle(title, fontsize="large", fontweight="bold")
-    if mask:
-        plt.title(f"Applied mask: {mask}")
+    if limits["mask"]:
+        plt.title(f"Applied mask: {limits['mask']['min']}-{limits['mask']['max']}")
     plt.xlabel("Frame", fontweight="bold")
     plt.ylabel("RMSD (\u212B)", fontweight="bold")
     path_plot = f"{path_basename}.{format_output}"
@@ -298,7 +298,7 @@ def plot_individual_contacts(df, out_dir, out_basename, dist_thr, format_output)
     :param format_output: the output format for the plots.
     :type format_output: str
     """
-    contacts_plots_dir = os.path.join(out_dir, "contacts_individual")
+    contacts_plots_dir = os.path.join(out_dir, "individual_contacts")
     os.makedirs(contacts_plots_dir, exist_ok=True)
 
     # plot all the contacts
@@ -322,7 +322,7 @@ def plot_individual_contacts(df, out_dir, out_basename, dist_thr, format_output)
     logging.info(f"\t{nb_plots}/{len(df.columns[1:])} inter residues atoms contacts plot saved in {contacts_plots_dir}")
 
 
-def contacts_csv(df, out_dir, out_basename, pattern, mask, limits):
+def contacts_csv(df, out_dir, out_basename, pattern, limits):
     """
     Get the mean and median distances for the contacts in the whole molecular dynamics simulation and in the second
     half of the simulation.
@@ -335,8 +335,6 @@ def contacts_csv(df, out_dir, out_basename, pattern, mask, limits):
     :type out_basename: str
     :param pattern: the pattern for the contact.
     :type pattern: re.pattern
-    :param mask: the selection mask.
-    :type mask: str
     :param limits: the mask and heat map region of interest limits.
     :type limits: dict
     :return: the dataframe of the contacts statistics.
@@ -356,7 +354,7 @@ def contacts_csv(df, out_dir, out_basename, pattern, mask, limits):
     for contact_id in df.columns[1:]:
         match = pattern.search(contact_id)
         if match:
-            if mask:
+            if limits["mask"]:
                 donor_position = int(match.group(2)) + limits["mask"]["min"] - 1
                 acceptor_position = int(match.group(5)) + limits["mask"]["min"] - 1
                 data["contact"].append(f"{match.group(1)}{donor_position}_{match.group(3)}-"
@@ -380,7 +378,7 @@ def contacts_csv(df, out_dir, out_basename, pattern, mask, limits):
         data["whole_MD_mean_distance"].append(round(statistics.mean(df.loc[:, contact_id]), 2))
         data["whole_MD_median_distance"].append(round(statistics.median(df.loc[:, contact_id]), 2))
     contacts_stat = pd.DataFrame(data)
-    out_path = os.path.join(out_dir, f"contacts_{out_basename}_{mask}.csv" if mask else f"contacts_{out_basename}.csv")
+    out_path = os.path.join(out_dir, f"contacts_{out_basename}.csv")
     contacts_stat.to_csv(out_path, index=False)
     logging.info(f"Inter residues atoms contacts CSV saved: {out_path}")
 
@@ -436,7 +434,7 @@ def reduce_contacts_dataframe(df, dist_col, lim):
     return df
 
 
-def get_df_distances_nb_contacts(df, dist_col, limits_mask):
+def get_df_distances_nb_contacts(df, dist_col):
     """
     Create a distances and a number of contacts dataframes for the couples donors and acceptors.
 
@@ -444,8 +442,6 @@ def get_df_distances_nb_contacts(df, dist_col, limits_mask):
     :type df: pd.Dataframe
     :param dist_col: the name of the distances column to use.
     :type dist_col: str
-    :param limits_mask: the mask limits.
-    :type limits_mask: dict
     :return: the dataframe of distances and the dataframe of the number of contacts.
     :rtype: pd.Dataframe, pd.Dataframe
     """
@@ -491,7 +487,7 @@ def get_df_distances_nb_contacts(df, dist_col, limits_mask):
     return source_distances, source_nb_contacts
 
 
-def heat_map_contacts(df_residues, distances_col, out_basename, mask, out_dir, output_fmt, limits):
+def heat_map_contacts(df_residues, distances_col, out_basename, out_dir, output_fmt, limits):
     """
     Create the heat map of contacts between residues.
 
@@ -501,8 +497,6 @@ def heat_map_contacts(df_residues, distances_col, out_basename, mask, out_dir, o
     :type distances_col: str
     :param out_basename: the basename.
     :type out_basename: str
-    :param mask: the selection mask
-    :type mask: str
     :param out_dir: the output directory.
     :type out_dir: str
     :param output_fmt: the output format for the heat map.
@@ -514,7 +508,7 @@ def heat_map_contacts(df_residues, distances_col, out_basename, mask, out_dir, o
     df_residues = reduce_contacts_dataframe(df_residues, distances_col, limits)
 
     # create the distances and number of contacts dataframes to produce the heat map
-    source_distances, source_nb_contacts = get_df_distances_nb_contacts(df_residues, distances_col, limits["mask"])
+    source_distances, source_nb_contacts = get_df_distances_nb_contacts(df_residues, distances_col)
 
     # increase the size of the heatmap if too much entries
     factor = int(len(source_distances) / 40) if len(source_distances) / 40 >= 1 else 1
@@ -528,16 +522,13 @@ def heat_map_contacts(df_residues, distances_col, out_basename, mask, out_dir, o
     title = f"Contact residues {distances_col.replace('_', ' ')}: {out_basename}"
     plt.suptitle(title, fontsize="large", fontweight="bold")
     subtitle = f"Number of residues atoms in contact displayed in the squares"
-    if limits["mask"]:
-        subtitle = f"{subtitle}\nMask on residues: {limits['mask']['min']} to {limits['mask']['max']}"
     if limits["roi"]:
         subtitle = f"{subtitle}   Heatmap focus on donor residues {limits['mask']['min'] + limits['roi']['min']} to " \
                    f"{limits['mask']['min'] + limits['roi']['max']}"
     plt.title(subtitle)
     plt.xlabel("Acceptors", fontweight="bold")
     plt.ylabel("Donors", fontweight="bold")
-    mask_str = f"_{mask}" if mask else ""
-    out_path = os.path.join(out_dir, f"heatmap_{distances_col.replace(' ', '-')}_{out_basename}{mask_str}.{output_fmt}")
+    out_path = os.path.join(out_dir, f"heatmap_{distances_col.replace(' ', '-')}_{out_basename}.{output_fmt}")
     plot.savefig(out_path)
     # clear the plot for the next use of the function
     plt.clf()
@@ -635,7 +626,9 @@ if __name__ == "__main__":
 
     # compute RMSD and create the plot
     basename = os.path.splitext(os.path.basename(args.input))[0]
-    rmsd(trajectory, args.out, basename, args.mask, args.format)
+    if limits_mask_roi["mask"]:
+        basename = f"{basename}_mask-{limits_mask_roi['mask']['min']}-{limits_mask_roi['mask']['max']}"
+    rmsd(trajectory, args.out, basename, limits_mask_roi, args.format)
 
     # find the Hydrogen bonds
     pattern_contact = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
@@ -645,7 +638,7 @@ if __name__ == "__main__":
         plot_individual_contacts(data_h_bonds, args.out, basename, args.distance_contacts, args.format)
 
     # write the CSV for the contacts
-    stats = contacts_csv(data_h_bonds, args.out, basename, pattern_contact, args.mask, limits_mask_roi)
+    stats = contacts_csv(data_h_bonds, args.out, basename, pattern_contact, limits_mask_roi)
 
     # get the heat maps of validated contacts by residues for each column of the statistics dataframe
     hm_text = "Heat maps contacts:"
@@ -655,4 +648,4 @@ if __name__ == "__main__":
                   f"{limits_mask_roi['mask']['min'] + limits_mask_roi['roi']['max'] - 1}:"
     logging.info(hm_text)
     for distances_column_id in stats.columns[5:]:
-        heat_map_contacts(stats, distances_column_id, basename, args.mask, args.out, args.format, limits_mask_roi)
+        heat_map_contacts(stats, distances_column_id, basename, args.out, args.format, limits_mask_roi)
