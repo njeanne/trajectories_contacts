@@ -421,30 +421,58 @@ def get_df_distances_nb_contacts(df, dist_col):
                 nb_contacts[acceptor_position].append(contacts.values[0])
             else:
                 nb_contacts[acceptor_position].append(None)
-
     source_distances = pd.DataFrame(distances, index=donors)
     source_distances.columns = acceptors
     source_nb_contacts = pd.DataFrame(nb_contacts, index=donors)
     source_nb_contacts.columns = acceptors
+    return source_distances, source_nb_contacts
 
-    # get the heat map
+
+def heat_map_contacts(df_residues, distances_col, out_basename, mask, out_dir, output_fmt, roi_hm):
+    """
+    Create the heat map of contacts between residues.
+
+    :param df_residues: the statistics dataframe.
+    :type df_residues: pd.DataFrame
+    :param distances_col: the column in the dataframe to get the distances.
+    :type distances_col: str
+    :param out_basename: the basename.
+    :type out_basename: str
+    :param mask: the selection mask
+    :type mask: str
+    :param out_dir: the output directory.
+    :type out_dir: str
+    :param output_fmt: the output format for the heat map.
+    :type output_fmt: str
+    :param roi_hm: the coordinates of the boundaries of the region to display, i.e: 682-850
+    :type roi_hm: str
+    """
+    # keep only the minimal distance between 2 residues and add the number of contacts
+    df_residues = reduce_contacts_dataframe(df_residues, distances_col, roi_hm)
+
+    source_distances, source_nb_contacts = get_df_distances_nb_contacts(df_residues, distances_col)
+
+    # increase the size of the heatmap if too much entries
+    factor = int(len(source_distances) / 40) if len(source_distances) / 40 >= 1 else 1
+    logging.debug(f"{len(source_distances)} entries, the size of the figure is multiplied by a factor {factor}.")
+    rcParams["figure.figsize"] = 15 * factor, 12 * factor
     heatmap = sns.heatmap(source_distances, annot=source_nb_contacts, cbar_kws={"label": "Distance (\u212B)"},
-                          linewidths=0.5)
+                          linewidths=0.5, xticklabels=True, yticklabels=True)
     heatmap.figure.axes[-1].yaxis.label.set_size(15)
     plot = heatmap.get_figure()
     mask_in_title = f" with mask selection {mask}" if mask else ""
-    title = f"Contact residues {stat_col.replace('_', ' ')}: {out_basename}{mask_in_title}"
+    title = f"Contact residues {distances_col.replace('_', ' ')}: {out_basename}{mask_in_title}"
     plt.suptitle(title, fontsize="large", fontweight="bold")
     mask_subtitle = "\nMask:\t{mask}" if mask else ""
     plt.title(f"Number of residues atoms in contact displayed in the squares{mask_subtitle}")
     plt.xlabel("Acceptors", fontweight="bold")
     plt.ylabel("Donors", fontweight="bold")
     mask_str = f"_{mask}" if mask else ""
-    out_path = os.path.join(out_dir, f"heatmap_{stat_col.replace(' ', '-')}_{out_basename}{mask_str}.{output_fmt}")
+    out_path = os.path.join(out_dir, f"heatmap_{distances_col.replace(' ', '-')}_{out_basename}{mask_str}.{output_fmt}")
     plot.savefig(out_path)
     # clear the plot for the next use of the function
     plt.clf()
-    logging.info(f"\t{stat_col} heat map saved: {out_path}")
+    logging.info(f"\t{distances_col} heat map saved: {out_path}")
 
 
 if __name__ == "__main__":
@@ -515,7 +543,7 @@ if __name__ == "__main__":
 
     # set the seaborn plots theme and size
     sns.set_theme()
-    rcParams['figure.figsize'] = 15, 15
+    rcParams["figure.figsize"] = 15, 12
 
     # load the trajectory
     try:
