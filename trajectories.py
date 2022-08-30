@@ -385,16 +385,18 @@ def contacts_csv(df, out_dir, out_basename, pattern, limits):
     return contacts_stat
 
 
-def reduce_contacts_dataframe(df, dist_col, lim):
+def reduce_contacts_dataframe(raw_df, dist_col, thr, lim):
     """
-    When multiple rows of the same combination of donor and acceptor residues keep the one with the minimal contact
-    distance (between the atoms of this 2 residues) and create a column with the number of contacts between this 2
-    residues.
+    The dataframe are filtered on the values under the distance threshold, then when multiple rows of the same
+    combination of donor and acceptor residues keep the one with the minimal contact distance (between the atoms of
+    this 2 residues) and create a column with the number of contacts between this 2 residues.
 
-    :param df: the contact residues dataframe.
-    :type df: pd.Dataframe
+    :param raw_df: the contact residues dataframe.
+    :type raw_df: pd.Dataframe
     :param dist_col: the name of the distances column.
     :type dist_col: str
+    :param thr: the distance threshold.
+    :type thr: float
     :param lim: the mask and heat map region of interest limits.
     :type lim: dict
     :return: the reduced dataframe with the minimal distance value of all the couples of donors-acceptors and the
@@ -402,8 +404,10 @@ def reduce_contacts_dataframe(df, dist_col, lim):
     :rtype: pd.Dataframe
     """
     # convert the donor and acceptor positions columns to int
-    df["donor position"] = pd.to_numeric(df["donor position"])
-    df["acceptor position"] = pd.to_numeric(df["acceptor position"])
+    raw_df["donor position"] = pd.to_numeric(raw_df["donor position"])
+    raw_df["acceptor position"] = pd.to_numeric(raw_df["acceptor position"])
+    # get only the rows with a contact distance less or equal to the threshold
+    df = raw_df[raw_df[dist_col].between(0.0, thr)]
     # select rows of the dataframe if limits for the heat map were set
     if lim["mask"] and lim["roi"]:
         df = df[df["donor position"].between(lim["mask"]["min"] + lim["roi"]["min"] - 1,
@@ -487,7 +491,7 @@ def get_df_distances_nb_contacts(df, dist_col):
     return source_distances, source_nb_contacts
 
 
-def heat_map_contacts(df_residues, distances_col, out_basename, out_dir, output_fmt, limits):
+def heat_map_contacts(df_residues, distances_col, threshold_contact, out_basename, out_dir, output_fmt, limits):
     """
     Create the heat map of contacts between residues.
 
@@ -505,7 +509,7 @@ def heat_map_contacts(df_residues, distances_col, out_basename, out_dir, output_
     :type limits: dict
     """
     # keep only the minimal distance between 2 residues and add the number of contacts
-    df_residues = reduce_contacts_dataframe(df_residues, distances_col, limits)
+    df_residues = reduce_contacts_dataframe(df_residues, distances_col, threshold_contact, limits)
 
     # create the distances and number of contacts dataframes to produce the heat map
     source_distances, source_nb_contacts = get_df_distances_nb_contacts(df_residues, distances_col)
@@ -648,4 +652,5 @@ if __name__ == "__main__":
                   f"{limits_mask_roi['mask']['min'] + limits_mask_roi['roi']['max'] - 1}:"
     logging.info(hm_text)
     for distances_column_id in stats.columns[5:]:
-        heat_map_contacts(stats, distances_column_id, basename, args.out, args.format, limits_mask_roi)
+        heat_map_contacts(stats, distances_column_id, args.distance_contacts, basename, args.out, args.format,
+                          limits_mask_roi)
