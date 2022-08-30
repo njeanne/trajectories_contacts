@@ -87,7 +87,7 @@ def load_trajectory(trajectory_file, topology_file, mask):
     :rtype: pt.Trajectory
     """
     traj = pt.iterload(trajectory_file, topology_file)
-    logging.info("Load trajectory file:")
+    logging.info("Loading trajectory file:")
     if mask is not None:
         logging.info(f"\tApplied mask:\t{mask}")
         traj = traj[mask]
@@ -234,7 +234,7 @@ def hydrogen_bonds(traj, dist_thr, contacts_frame_thr_2nd_half, pattern_hb):
     return df
 
 
-def plot_individual_contacts(df, out_dir, out_basename, dist_thr, mask, format_output):
+def plot_individual_contacts(df, out_dir, out_basename, dist_thr, format_output):
     """
     Plot individual inter residues polar contacts.
 
@@ -246,8 +246,6 @@ def plot_individual_contacts(df, out_dir, out_basename, dist_thr, mask, format_o
     :type out_basename: str
     :param dist_thr: the threshold distance in Angstroms for contacts.
     :type dist_thr: float
-    :param mask: the selection mask.
-    :type mask: str
     :param format_output: the output format for the plots.
     :type format_output: str
     """
@@ -298,10 +296,10 @@ def contacts_csv(df, out_dir, out_basename, pattern, mask):
             "donor residue": [],
             "acceptor position": [],
             "acceptor residue": [],
-            "mean_distance_2nd_half": [],
-            "median_distance_2nd_half": [],
-            "mean_distance_whole": [],
-            "median_distance_whole": []}
+            "2nd_half_MD_mean_distance": [],
+            "2nd_half_MD_median_distance": [],
+            "whole_MD_mean_distance": [],
+            "whole_MD_median_distance": []}
 
     df_half = df.iloc[int(len(df.index)/2):]
     for contact_id in df.columns[1:]:
@@ -317,10 +315,10 @@ def contacts_csv(df, out_dir, out_basename, pattern, mask):
             data["donor residue"].append("not found")
             data["acceptor position"].append("not found")
             data["acceptor_residue"].append("not found")
-        data["mean_distance_2nd_half"].append(round(statistics.mean(df_half.loc[:, contact_id]), 2))
-        data["median_distance_2nd_half"].append(round(statistics.median(df_half.loc[:, contact_id]), 2))
-        data["mean_distance_whole"].append(round(statistics.mean(df.loc[:, contact_id]), 2))
-        data["median_distance_whole"].append(round(statistics.median(df.loc[:, contact_id]), 2))
+        data["2nd_half_MD_mean_distance"].append(round(statistics.mean(df_half.loc[:, contact_id]), 2))
+        data["2nd_half_MD_median_distance"].append(round(statistics.median(df_half.loc[:, contact_id]), 2))
+        data["whole_MD_mean_distance"].append(round(statistics.mean(df.loc[:, contact_id]), 2))
+        data["whole_MD_median_distance"].append(round(statistics.median(df.loc[:, contact_id]), 2))
     contacts_stat = pd.DataFrame(data)
     out_path = os.path.join(out_dir, f"contacts_{out_basename}_{mask}.csv" if mask else f"contacts_{out_basename}.csv")
     contacts_stat.to_csv(out_path, index=False)
@@ -530,11 +528,12 @@ if __name__ == "__main__":
     data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.second_half_percent, pattern_contact)
     if args.individual_plots:
         # plot individual contacts
-        plot_individual_contacts(data_h_bonds, args.out, basename, args.distance_contacts, args.mask, args.format)
+        plot_individual_contacts(data_h_bonds, args.out, basename, args.distance_contacts, args.format)
 
     # write the CSV for the contacts
     stats = contacts_csv(data_h_bonds, args.out, basename, pattern_contact, args.mask)
 
     # get the heat maps of validated contacts by residues for each column of the statistics dataframe
-    for stat_column_id in stats.columns[5:]:
-        heat_map_contacts(stats, stat_column_id, basename, args.mask, args.out, args.format, args.roi_hm)
+    logging.info(f"Heat maps contacts{f' on region of interest {args.roi_hm}' if args.roi_hm else ''}:")
+    for distances_column_id in stats.columns[5:]:
+        heat_map_contacts(stats, distances_column_id, basename, args.mask, args.out, args.format, args.roi_hm)
