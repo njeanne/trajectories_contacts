@@ -513,6 +513,7 @@ def heat_map_contacts(df_residues, distances_col, out_basename, mask, out_dir, o
     # keep only the minimal distance between 2 residues and add the number of contacts
     df_residues = reduce_contacts_dataframe(df_residues, distances_col, limits)
 
+    # create the distances and number of contacts dataframes to produce the heat map
     source_distances, source_nb_contacts = get_df_distances_nb_contacts(df_residues, distances_col, limits["mask"])
 
     # increase the size of the heatmap if too much entries
@@ -526,11 +527,13 @@ def heat_map_contacts(df_residues, distances_col, out_basename, mask, out_dir, o
     plot = heatmap.get_figure()
     title = f"Contact residues {distances_col.replace('_', ' ')}: {out_basename}"
     plt.suptitle(title, fontsize="large", fontweight="bold")
-    subtitle = f"\nMask: {mask}" if mask else ""
+    subtitle = f"Number of residues atoms in contact displayed in the squares"
+    if limits["mask"]:
+        subtitle = f"{subtitle}\nMask on residues: {limits['mask']['min']} to {limits['mask']['max']}"
     if limits["roi"]:
         subtitle = f"{subtitle}   Heatmap focus on donor residues {limits['mask']['min'] + limits['roi']['min']} to " \
                    f"{limits['mask']['min'] + limits['roi']['max']}"
-    plt.title(f"Number of residues atoms in contact displayed in the squares{subtitle}")
+    plt.title(subtitle)
     plt.xlabel("Acceptors", fontweight="bold")
     plt.ylabel("Donors", fontweight="bold")
     mask_str = f"_{mask}" if mask else ""
