@@ -201,12 +201,12 @@ def sort_contacts(contact_names, pattern):
             match = pattern.search(contact_name)
             if match:
                 if int(match.group(2)) in tmp:
-                    if int(match.group(4)) in tmp[int(match.group(2))]:
-                        tmp[int(match.group(2))][int(match.group(4))].append(contact_name)
+                    if int(match.group(5)) in tmp[int(match.group(2))]:
+                        tmp[int(match.group(2))][int(match.group(5))].append(contact_name)
                     else:
-                        tmp[int(match.group(2))][int(match.group(4))] = [contact_name]
+                        tmp[int(match.group(2))][int(match.group(5))] = [contact_name]
                 else:
-                    tmp[int(match.group(2))] = {int(match.group(4)): [contact_name]}
+                    tmp[int(match.group(2))] = {int(match.group(5)): [contact_name]}
             else:
                 logging.error(f"no match for {pattern.pattern} in {contact_name}")
                 sys.exit(1)
@@ -249,7 +249,7 @@ def hydrogen_bonds(traj, dist_thr, contacts_frame_thr_2nd_half, pattern_hb):
         if h_bond.key != "total_solute_hbonds":
             match = pattern_hb.search(h_bond.key)
             if match:
-                if match.group(2) == match.group(4):
+                if match.group(2) == match.group(5):
                     nb_intra_residue_contacts += 1
                     logging.debug(f"\t {h_bond.key}: atoms contact from same residue, contact skipped")
                 else:
@@ -322,7 +322,7 @@ def plot_individual_contacts(df, out_dir, out_basename, dist_thr, format_output)
     logging.info(f"\t{nb_plots}/{len(df.columns[1:])} inter residues atoms contacts plot saved in {contacts_plots_dir}")
 
 
-def contacts_csv(df, out_dir, out_basename, pattern, mask):
+def contacts_csv(df, out_dir, out_basename, pattern, mask, limits):
     """
     Get the mean and median distances for the contacts in the whole molecular dynamics simulation and in the second
     half of the simulation.
@@ -337,6 +337,8 @@ def contacts_csv(df, out_dir, out_basename, pattern, mask):
     :type pattern: re.pattern
     :param mask: the selection mask.
     :type mask: str
+    :param limits: the mask and heat map region of interest limits.
+    :type limits: dict
     :return: the dataframe of the contacts statistics.
     :rtype: pd.DataFrame
     """
@@ -352,18 +354,27 @@ def contacts_csv(df, out_dir, out_basename, pattern, mask):
 
     df_half = df.iloc[int(len(df.index)/2):]
     for contact_id in df.columns[1:]:
-        data["contact"].append(contact_id)
         match = pattern.search(contact_id)
         if match:
-            data["donor position"].append(match.group(2))
+            if mask:
+                donor_position = int(match.group(2)) + limits["mask"]["min"] - 1
+                acceptor_position = int(match.group(5)) + limits["mask"]["min"] - 1
+                data["contact"].append(f"{match.group(1)}{donor_position}_{match.group(3)}-"
+                                       f"{match.group(4)}{acceptor_position}_{match.group(6)}")
+                data["donor position"].append(donor_position)
+                data["acceptor position"].append(acceptor_position)
+            else:
+                data["contact"].append(contact_id)
+                data["donor position"].append(int(match.group(2)))
+                data["acceptor position"].append(int(match.group(5)))
             data["donor residue"].append(match.group(1))
-            data["acceptor position"].append(match.group(4))
-            data["acceptor residue"].append(match.group(3))
+            data["acceptor residue"].append(match.group(4))
         else:
-            data["donor position"].append("not found")
-            data["donor residue"].append("not found")
-            data["acceptor position"].append("not found")
-            data["acceptor_residue"].append("not found")
+            data["contact"].append(contact_id)
+            data["donor position"].append(f"no match with {pattern.pattern}")
+            data["donor residue"].append(f"no match with {pattern.pattern}")
+            data["acceptor position"].append(f"no match with {pattern.pattern}")
+            data["acceptor_residue"].append(f"no match with {pattern.pattern}")
         data["2nd_half_MD_mean_distance"].append(round(statistics.mean(df_half.loc[:, contact_id]), 2))
         data["2nd_half_MD_median_distance"].append(round(statistics.median(df_half.loc[:, contact_id]), 2))
         data["whole_MD_mean_distance"].append(round(statistics.mean(df.loc[:, contact_id]), 2))
@@ -376,7 +387,7 @@ def contacts_csv(df, out_dir, out_basename, pattern, mask):
     return contacts_stat
 
 
-def reduce_contacts_dataframe(df, dist_col, limits_roi):
+def reduce_contacts_dataframe(df, dist_col, lim):
     """
     When multiple rows of the same combination of donor and acceptor residues keep the one with the minimal contact
     distance (between the atoms of this 2 residues) and create a column with the number of contacts between this 2
@@ -386,8 +397,8 @@ def reduce_contacts_dataframe(df, dist_col, limits_roi):
     :type df: pd.Dataframe
     :param dist_col: the name of the distances column.
     :type dist_col: str
-    :param limits_roi: the region of interest min and max limits to focus on the heat maps.
-    :type limits_roi: dict
+    :param lim: the mask and heat map region of interest limits.
+    :type lim: dict
     :return: the reduced dataframe with the minimal distance value of all the couples of donors-acceptors and the
     column with the number of contacts.
     :rtype: pd.Dataframe
@@ -396,8 +407,11 @@ def reduce_contacts_dataframe(df, dist_col, limits_roi):
     df["donor position"] = pd.to_numeric(df["donor position"])
     df["acceptor position"] = pd.to_numeric(df["acceptor position"])
     # select rows of the dataframe if limits for the heat map were set
-    if limits_roi:
-        df = df[df["donor position"].between(limits_roi["min"], limits_roi["max"])]
+    if lim["mask"] and lim["roi"]:
+        df = df[df["donor position"].between(lim["mask"]["min"] + lim["roi"]["min"] - 1,
+                                             lim["mask"]["min"] + lim["roi"]["max"] - 1)]
+    elif lim["roi"]:
+        df = df[df["donor position"].between(lim["roi"]["min"], lim["roi"]["max"])]
     # donors_acceptors is used to register the combination of donor and acceptor and select only the value with the
     # minimal contact distance and also the number of contacts
     donors_acceptors = []
@@ -444,12 +458,11 @@ def get_df_distances_nb_contacts(df, dist_col, limits_mask):
     unique_donor_positions = sorted(list(set(df["donor position"])))
     unique_acceptor_positions = sorted(list(set(df["acceptor position"])))
     for donor_position in unique_donor_positions:
-        donor = f"{donor_position + limits_mask['min'] - 1 if limits_mask else donor_position}" \
-                f"{df.loc[(df['donor position'] == donor_position), 'donor residue'].values[0]}"
+        donor = f"{donor_position}{df.loc[(df['donor position'] == donor_position), 'donor residue'].values[0]}"
         if donor not in donors:
             donors.append(donor)
         for acceptor_position in unique_acceptor_positions:
-            acceptor = f"{acceptor_position + limits_mask['min'] - 1 if limits_mask else acceptor_position}" \
+            acceptor = f"{acceptor_position}" \
                        f"{df.loc[(df['acceptor position'] == acceptor_position), 'acceptor residue'].values[0]}"
             if acceptor not in acceptors:
                 acceptors.append(acceptor)
@@ -498,7 +511,7 @@ def heat_map_contacts(df_residues, distances_col, out_basename, mask, out_dir, o
     :type limits: dict
     """
     # keep only the minimal distance between 2 residues and add the number of contacts
-    df_residues = reduce_contacts_dataframe(df_residues, distances_col, limits["roi"])
+    df_residues = reduce_contacts_dataframe(df_residues, distances_col, limits)
 
     source_distances, source_nb_contacts = get_df_distances_nb_contacts(df_residues, distances_col, limits["mask"])
 
@@ -622,14 +635,14 @@ if __name__ == "__main__":
     rmsd(trajectory, args.out, basename, args.mask, args.format)
 
     # find the Hydrogen bonds
-    pattern_contact = re.compile("(\\D{3})(\\d+).+-(\\D{3})(\\d+)")
+    pattern_contact = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
     data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.second_half_percent, pattern_contact)
     if args.individual_plots:
         # plot individual contacts
         plot_individual_contacts(data_h_bonds, args.out, basename, args.distance_contacts, args.format)
 
     # write the CSV for the contacts
-    stats = contacts_csv(data_h_bonds, args.out, basename, pattern_contact, args.mask)
+    stats = contacts_csv(data_h_bonds, args.out, basename, pattern_contact, args.mask, limits_mask_roi)
 
     # get the heat maps of validated contacts by residues for each column of the statistics dataframe
     hm_text = "Heat maps contacts:"
