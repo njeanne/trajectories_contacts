@@ -327,35 +327,31 @@ def contacts_csv(df, out_dir, out_basename, pattern, mask):
     return contacts_stat
 
 
-def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt, roi_hm):
+def reduce_contacts_dataframe(df, dist_col, roi):
     """
-    Create the heat map of contacts between residues.
+    When multiple rows of the same combination of donor and acceptor residues keep the one with the minimal contact
+    distance (between the atoms of this 2 residues) and create a column with the number of contacts between this 2
+    residues.
 
-    :param df: the statistics dataframe.
-    :type df: pd.DataFrame
-    :param stat_col: the column in the dataframe to get the distances.
-    :type stat_col: str
-    :param out_basename: the basename.
-    :type out_basename: str
-    :param mask: the selection mask
-    :type mask: str
-    :param out_dir: the output directory.
-    :type out_dir: str
-    :param output_fmt: the output format for the heat map.
-    :type output_fmt: str
-    :param roi_hm: the coordinates of the boundaries of the region to display, i.e: 682-850
-    :type roi_hm: str
+    :param df: the contact residues dataframe.
+    :type df: pd.Dataframe
+    :param dist_col: the name of the distances column.
+    :type dist_col: str
+    :param roi: the region of interest to focus on the heat maps, the format is i.e: 682-850.
+    :type roi: str
+    :return: the reduced dataframe with the minimal distance value of all the couples of donors-acceptors and the
+    column with the number of contacts.
+    :rtype: pd.Dataframe
     """
-    # convert the donor position column to int
+    # convert the donor and acceptor positions columns to int
     df["donor position"] = pd.to_numeric(df["donor position"])
-    logging.info(f"Heat maps contacts{f' on region of interest {roi_hm}' if roi_hm else ''}:")
+    df["acceptor position"] = pd.to_numeric(df["acceptor position"])
     # select rows of the dataframe if limits for the heat map were set
-    if roi_hm:
-        roi_split = roi_hm.split("-")
+    if roi:
+        roi_split = roi.split("-")
         low_limit = int(roi_split[0])
         high_limit = int(roi_split[1])
         df = df[df["donor position"].between(low_limit, high_limit)]
-
     # donors_acceptors is used to register the combination of donor and acceptor and select only the value with the
     # minimal contact distance and also the number of contacts
     donors_acceptors = []
@@ -369,7 +365,7 @@ def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt, roi
             tmp_df = df[
                 (df["donor position"] == row["donor position"]) & (df["acceptor position"] == row["acceptor position"])]
             # get the index of the minimal distance
-            idx_min = tmp_df[[stat_col]].idxmin()
+            idx_min = tmp_df[[dist_col]].idxmin()
             # record the index to remove of the other rows of the same donor - acceptor positions
             tmp_index_to_remove = list(tmp_df.index.drop(idx_min))
             if tmp_index_to_remove:
@@ -377,6 +373,20 @@ def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt, roi
             donor_acceptor_nb_contacts.append(len(tmp_df.index))
     df = df.drop(idx_to_remove)
     df["number contacts"] = donor_acceptor_nb_contacts
+    return df
+
+
+def get_df_distances_nb_contacts(df, dist_col):
+    """
+    Create a distances and a number of contacts dataframes for the couples donors and acceptors.
+
+    :param df: the initial dataframe
+    :type df: pd.Dataframe
+    :param dist_col: the name of the distances column to use.
+    :type dist_col: str
+    :return: the dataframe of distances and the dataframe of the number of contacts.
+    :rtype: pd.Dataframe, pd.Dataframe
+    """
 
     # create the dictionaries of distances and number of contacts
     distances = {}
@@ -397,7 +407,7 @@ def heat_map_contacts(df, stat_col, out_basename, mask, out_dir, output_fmt, roi
             if acceptor_position not in distances:
                 distances[acceptor_position] = []
             dist = df.loc[(df["donor position"] == donor_position) & (df["acceptor position"] == acceptor_position),
-                          stat_col]
+                          dist_col]
             if not dist.empty:
                 distances[acceptor_position].append(dist.values[0])
             else:
