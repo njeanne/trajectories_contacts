@@ -37,7 +37,7 @@ def restricted_float(float_to_inspect):
     """
     x = float(float_to_inspect)
     if x < 0.0 or x > 100.0:
-        raise argparse.ArgumentTypeError("{} not in range [0.0, 100.0]".format(x))
+        raise argparse.ArgumentTypeError(f"{x} not in range [0.0, 100.0]")
     return x
 
 
@@ -73,6 +73,51 @@ def create_log(path, level):
     return logging
 
 
+def check_limits(mask, roi):
+    """Check if the formats of the mask and the region of interest (roi) are valid and if the roi is between the
+    limits of the mask selection.
+
+    :param mask: the mask
+    :type mask: str
+    :param roi: the region of interest limits
+    :type roi: str
+    :raises ArgumentTypeError: is not between 0.0 and 100.0
+    :return: the mask and region of interest limits
+    :rtype: dict
+    """
+    limits = {"mask": {}, "roi": {}}
+    if mask:
+        pattern_mask = re.compile(":(\\d+)-(\\d+)")
+        match_mask = pattern_mask.search(mask)
+        if match_mask:
+            limits["mask"]["min"] = int(match_mask.group(1))
+            limits["mask"]["max"] = int(match_mask.group(2))
+        else:
+            raise argparse.ArgumentTypeError(f"--mask {mask} is not a valid format, valid format should be: "
+                                             f"--mask :<DIGITS>-<DIGITS>")
+    if roi:
+        pattern_roi = re.compile("(\\d+)-(\\d+)")
+        match_roi = pattern_roi.search(roi)
+        if match_roi:
+            limits["roi"]["min"] = int(match_roi.group(1))
+            limits["roi"]["max"] = int(match_roi.group(2))
+        else:
+            raise argparse.ArgumentTypeError(f"--roi-hm {roi} is not a valid format, valid format should be: "
+                                             f"--roi-hm <DIGITS>-<DIGITS>")
+    if mask and roi:
+        if limits["mask"]["min"] + limits["roi"]["min"] >= limits["mask"]["max"]:
+            raise argparse.ArgumentTypeError(f"Heat maps Region Of Interest minimum limit {limits['roi']['min']} ("
+                                             f"{limits['mask']['min']}+{limits['roi']['min']}="
+                                             f"{limits['mask']['min'] + limits['roi']['min']}) is outside the mask "
+                                             f"limits:\t{mask}")
+        elif limits["mask"]["min"] + limits["roi"]["max"] >= limits["mask"]["max"]:
+            raise argparse.ArgumentTypeError(f"Heat maps Region Of Interest maximum limit {limits['roi']['max']} ("
+                                             f"{limits['mask']['min']}+{limits['roi']['max']}="
+                                             f"{limits['mask']['min'] + limits['roi']['max']}) is outside the mask "
+                                             f"limits:\t{mask}")
+    return limits
+
+
 def load_trajectory(trajectory_file, topology_file, mask):
     """
     Load a trajectory and apply a mask if mask argument is set.
@@ -89,8 +134,8 @@ def load_trajectory(trajectory_file, topology_file, mask):
     traj = pt.iterload(trajectory_file, topology_file)
     logging.info("Loading trajectory file:")
     if mask is not None:
-        logging.info(f"\tApplied mask:\t{mask}")
-        traj = traj[mask]
+        logging.info(f"\tApplied mask:\t{mask}\tPlease be patient..")
+        traj = traj[f"{mask}"]
     logging.info(f"\tFrames:\t\t{traj.n_frames}")
     logging.info(f"\tMolecules:\t{traj.topology.n_mols}")
     logging.info(f"\tResidues:\t{traj.topology.n_residues}")
@@ -327,7 +372,7 @@ def contacts_csv(df, out_dir, out_basename, pattern, mask):
     return contacts_stat
 
 
-def reduce_contacts_dataframe(df, dist_col, roi):
+def reduce_contacts_dataframe(df, dist_col, limits_roi):
     """
     When multiple rows of the same combination of donor and acceptor residues keep the one with the minimal contact
     distance (between the atoms of this 2 residues) and create a column with the number of contacts between this 2
@@ -337,8 +382,8 @@ def reduce_contacts_dataframe(df, dist_col, roi):
     :type df: pd.Dataframe
     :param dist_col: the name of the distances column.
     :type dist_col: str
-    :param roi: the region of interest to focus on the heat maps, the format is i.e: 682-850.
-    :type roi: str
+    :param limits_roi: the region of interest min and max limits to focus on the heat maps.
+    :type limits_roi: dict
     :return: the reduced dataframe with the minimal distance value of all the couples of donors-acceptors and the
     column with the number of contacts.
     :rtype: pd.Dataframe
@@ -347,11 +392,8 @@ def reduce_contacts_dataframe(df, dist_col, roi):
     df["donor position"] = pd.to_numeric(df["donor position"])
     df["acceptor position"] = pd.to_numeric(df["acceptor position"])
     # select rows of the dataframe if limits for the heat map were set
-    if roi:
-        roi_split = roi.split("-")
-        low_limit = int(roi_split[0])
-        high_limit = int(roi_split[1])
-        df = df[df["donor position"].between(low_limit, high_limit)]
+    if limits_roi:
+        df = df[df["donor position"].between(limits_roi["min"], limits_roi["max"])]
     # donors_acceptors is used to register the combination of donor and acceptor and select only the value with the
     # minimal contact distance and also the number of contacts
     donors_acceptors = []
@@ -376,7 +418,7 @@ def reduce_contacts_dataframe(df, dist_col, roi):
     return df
 
 
-def get_df_distances_nb_contacts(df, dist_col):
+def get_df_distances_nb_contacts(df, dist_col, limits_mask):
     """
     Create a distances and a number of contacts dataframes for the couples donors and acceptors.
 
@@ -384,6 +426,8 @@ def get_df_distances_nb_contacts(df, dist_col):
     :type df: pd.Dataframe
     :param dist_col: the name of the distances column to use.
     :type dist_col: str
+    :param limits_mask: the mask limits.
+    :type limits_mask: dict
     :return: the dataframe of distances and the dataframe of the number of contacts.
     :rtype: pd.Dataframe, pd.Dataframe
     """
@@ -396,11 +440,13 @@ def get_df_distances_nb_contacts(df, dist_col):
     unique_donor_positions = sorted(list(set(df["donor position"])))
     unique_acceptor_positions = sorted(list(set(df["acceptor position"])))
     for donor_position in unique_donor_positions:
-        donor = f"{donor_position}{df.loc[(df['donor position'] == donor_position), 'donor residue'].values[0]}"
+        donor = f"{donor_position + limits_mask['min'] - 1 if limits_mask else donor_position}" \
+                f"{df.loc[(df['donor position'] == donor_position), 'donor residue'].values[0]}"
         if donor not in donors:
             donors.append(donor)
         for acceptor_position in unique_acceptor_positions:
-            acceptor = f"{acceptor_position}{df.loc[(df['acceptor position'] == acceptor_position), 'acceptor residue'].values[0]}"
+            acceptor = f"{acceptor_position + limits_mask['min'] - 1 if limits_mask else acceptor_position}" \
+                       f"{df.loc[(df['acceptor position'] == acceptor_position), 'acceptor residue'].values[0]}"
             if acceptor not in acceptors:
                 acceptors.append(acceptor)
             # get the distance
@@ -428,7 +474,7 @@ def get_df_distances_nb_contacts(df, dist_col):
     return source_distances, source_nb_contacts
 
 
-def heat_map_contacts(df_residues, distances_col, out_basename, mask, out_dir, output_fmt, roi_hm):
+def heat_map_contacts(df_residues, distances_col, out_basename, mask, out_dir, output_fmt, limits):
     """
     Create the heat map of contacts between residues.
 
@@ -444,27 +490,30 @@ def heat_map_contacts(df_residues, distances_col, out_basename, mask, out_dir, o
     :type out_dir: str
     :param output_fmt: the output format for the heat map.
     :type output_fmt: str
-    :param roi_hm: the coordinates of the boundaries of the region to display, i.e: 682-850
-    :type roi_hm: str
+    :param limits: the mask and heat map region of interest limits.
+    :type limits: dict
     """
     # keep only the minimal distance between 2 residues and add the number of contacts
-    df_residues = reduce_contacts_dataframe(df_residues, distances_col, roi_hm)
+    df_residues = reduce_contacts_dataframe(df_residues, distances_col, limits["roi"])
 
-    source_distances, source_nb_contacts = get_df_distances_nb_contacts(df_residues, distances_col)
+    source_distances, source_nb_contacts = get_df_distances_nb_contacts(df_residues, distances_col, limits["mask"])
 
     # increase the size of the heatmap if too much entries
     factor = int(len(source_distances) / 40) if len(source_distances) / 40 >= 1 else 1
     logging.debug(f"{len(source_distances)} entries, the size of the figure is multiplied by a factor {factor}.")
     rcParams["figure.figsize"] = 15 * factor, 12 * factor
+    # create the heat map
     heatmap = sns.heatmap(source_distances, annot=source_nb_contacts, cbar_kws={"label": "Distance (\u212B)"},
                           linewidths=0.5, xticklabels=True, yticklabels=True)
     heatmap.figure.axes[-1].yaxis.label.set_size(15)
     plot = heatmap.get_figure()
-    mask_in_title = f" with mask selection {mask}" if mask else ""
-    title = f"Contact residues {distances_col.replace('_', ' ')}: {out_basename}{mask_in_title}"
+    title = f"Contact residues {distances_col.replace('_', ' ')}: {out_basename}"
     plt.suptitle(title, fontsize="large", fontweight="bold")
-    mask_subtitle = "\nMask:\t{mask}" if mask else ""
-    plt.title(f"Number of residues atoms in contact displayed in the squares{mask_subtitle}")
+    subtitle = f"\nMask: {mask}" if mask else ""
+    if limits["roi"]:
+        subtitle = f"{subtitle}   Heatmap focus on donor residues {limits['mask']['min'] + limits['roi']['min']} to " \
+                   f"{limits['mask']['min'] + limits['roi']['max']}"
+    plt.title(f"Number of residues atoms in contact displayed in the squares{subtitle}")
     plt.xlabel("Acceptors", fontweight="bold")
     plt.ylabel("Donors", fontweight="bold")
     mask_str = f"_{mask}" if mask else ""
@@ -488,16 +537,18 @@ if __name__ == "__main__":
     From a molecular dynamics trajectory file and eventually a mask selection
     (https://amber-md.github.io/pytraj/latest/atom_mask_selection.html#examples-atom-mask-selection-for-trajectory),
     perform trajectory analysis. The script computes the Root Mean Square Deviation (RMSD) and the hydrogen contacts
-    between atoms of two different residues.
+    between atoms of two different residues represented as a CSV file and heat maps.
     """
     parser = argparse.ArgumentParser(description=descr, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-o", "--out", required=True, type=str, help="the path to the output directory.")
     parser.add_argument("-t", "--topology", required=True, type=str,
                         help="the path to the molecular dynamics topology file.")
-    parser.add_argument("-m", "--mask", required=False, type=str, help="the mask selection.")
+    parser.add_argument("-m", "--mask", required=False, type=str,
+                        help="the residues mask selection, the format should be a colon and two integers separated by "
+                             "an hyphen, i.e: --mask :682-850")
     parser.add_argument("-r", "--roi-hm", required=False, type=str,
                         help="the boundaries of the region to display in the heatmap within the mask selection if any. "
-                             "In example if the mask '@CA,C,682-850' is applied and the region of interest for the "
+                             "In example if the mask '682-850' is applied and the region of interest for the "
                              "heatmap is '--roi 35-39', only positions 717 to 721 will be displayed in the heatmap.")
     parser.add_argument("-f", "--format", required=False, default="svg",
                         choices=["eps", "jpg", "jpeg", "pdf", "pgf", "png", "ps", "raw", "svg", "svgz", "tif", "tiff"],
@@ -537,9 +588,14 @@ if __name__ == "__main__":
 
     logging.info(f"version: {__version__}")
     logging.info(f"CMD: {' '.join(sys.argv)}")
-    logging.info(f"maximal threshold for atoms contacts distance: {args.distance_contacts} \u212B")
-    logging.info(f"minimal threshold for number of frames atoms contacts between two different residues in the second "
-                 f"half of the simulation: {args.second_half_percent:.1f}%")
+    logging.info(f"atoms maximal contacts distance threshold: {args.distance_contacts} \u212B")
+    logging.info(f"minimal proportion of frames with atoms contacts between two different residues in the second "
+                 f"half of the molecular dynamics: {args.second_half_percent:.1f}%")
+    try:
+        limits_mask_roi = check_limits(args.mask, args.roi_hm)
+    except argparse.ArgumentTypeError as exc:
+        logging.error(exc)
+        sys.exit(1)
 
     # set the seaborn plots theme and size
     sns.set_theme()
@@ -572,6 +628,11 @@ if __name__ == "__main__":
     stats = contacts_csv(data_h_bonds, args.out, basename, pattern_contact, args.mask)
 
     # get the heat maps of validated contacts by residues for each column of the statistics dataframe
-    logging.info(f"Heat maps contacts{f' on region of interest {args.roi_hm}' if args.roi_hm else ''}:")
+    hm_text = "Heat maps contacts:"
+    if args.roi_hm:
+        hm_text = f"Heat maps contacts on region of interest " \
+                  f"{limits_mask_roi['mask']['min'] + limits_mask_roi['roi']['min'] - 1} to " \
+                  f"{limits_mask_roi['mask']['min'] + limits_mask_roi['roi']['max'] - 1}:"
+    logging.info(hm_text)
     for distances_column_id in stats.columns[5:]:
-        heat_map_contacts(stats, distances_column_id, basename, args.mask, args.out, args.format, args.roi_hm)
+        heat_map_contacts(stats, distances_column_id, basename, args.mask, args.out, args.format, limits_mask_roi)
