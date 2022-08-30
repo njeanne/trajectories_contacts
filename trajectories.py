@@ -159,22 +159,26 @@ def rmsd(traj, out_dir, out_basename, mask, format_output):
     :param format_output: the output format for the plots.
     :type format_output: str
     """
+    logging.info("RMSD computation:")
+    path_basename = os.path.join(out_dir, f"RMSD_{out_basename}{'_mask_'+mask if mask else ''}")
     rmsd_traj = pt.rmsd(traj, ref=0)
     source = pd.DataFrame({"frames": range(traj.n_frames), "RMSD": rmsd_traj})
+    path_csv = f"{path_basename}.csv"
+    source.to_csv(path_csv, index=False)
+    logging.info(f"\tdata saved: {path_csv}")
     rmsd_ax = sns.lineplot(data=source, x="frames", y="RMSD")
     plot = rmsd_ax.get_figure()
-    mask_in_title = f" with mask selection {mask}" if mask else ""
-    title = f"Root Mean Square Deviation: {out_basename}{mask_in_title}"
+    title = f"Root Mean Square Deviation: {out_basename}"
     plt.suptitle(title, fontsize="large", fontweight="bold")
-    plt.title("Mask:\t{mask}" if mask else "")
+    if mask:
+        plt.title(f"Applied mask: {mask}")
     plt.xlabel("Frame", fontweight="bold")
     plt.ylabel("RMSD (\u212B)", fontweight="bold")
-    basename_plot_path = os.path.join(out_dir, f"RMSD_{out_basename}_{mask}" if mask else f"RMSD_{out_basename}")
-    out_path = f"{basename_plot_path}.{format_output}"
-    plot.savefig(out_path)
+    path_plot = f"{path_basename}.{format_output}"
+    plot.savefig(path_plot)
     # clear the plot for the next use of the function
     plt.clf()
-    logging.info(f"RMSD plot saved: {out_path}")
+    logging.info(f"\tplot saved: {path_plot}")
 
 
 def sort_contacts(contact_names, pattern):
