@@ -6,6 +6,7 @@ __license__ = 'GNU General Public License'
 __version__ = '1.0.0'
 __email__ = 'jeanne.n@chu-toulouse.fr'
 
+import argparse
 import os
 import re
 import shutil
@@ -14,14 +15,17 @@ import tempfile
 import unittest
 import uuid
 
-import pandas as pd
-import pytraj as pt
+from trajectories import check_limits, load_trajectory, rmsd, hydrogen_bonds, contacts_csv
 
 TEST_DIR = os.path.dirname(os.path.abspath(__file__))
+TEST_FILES_DIR = os.path.join(TEST_DIR, "test_files")
 BIN_DIR = os.path.dirname(TEST_DIR)
 sys.path.append(BIN_DIR)
 
-from trajectories import rmsd, hydrogen_bonds, contacts_csv
+
+def format_csv(path):
+    with open(path, "r") as csv_file:
+        return "".join(csv_file.readlines())
 
 
 class TestTrajectories(unittest.TestCase):
@@ -30,50 +34,59 @@ class TestTrajectories(unittest.TestCase):
         system_tmp_dir = tempfile.gettempdir()
         self.tmp_dir = os.path.join(system_tmp_dir, "tmp_tests_trajectories")
         os.makedirs(self.tmp_dir, exist_ok=True)
-        self.mask = None
-        self.format_output = "png"
+        self.format_output = "svg"
         self.dist_thr = 3.0
-        self.contacts_frame_thr_2nd_half = 20.0
-        self.pattern_contact = re.compile("(\\D{3})(\\d+).+-(\\D{3})(\\d+)")
-        self.traj = pt.iterload(os.path.join(TEST_DIR, "test_files", "JQ679014_hinge_WT_ranked_0_MD-1M.nc"),
-                                os.path.join(TEST_DIR, "test_files", "JQ679014_hinge_WT_ranked_0.parm"))
-        with open(os.path.join(TEST_DIR, "test_files", "rmsd.csv"), "r") as rmsd_csv_file:
-            self.rmsd_csv = "".join(rmsd_csv_file.readlines())
-        with open(os.path.join(TEST_DIR, "test_files", "h_bonds.csv"), "r") as h_bonds_csv_file:
-            self.h_bonds_csv = "".join(h_bonds_csv_file.readlines())
-        with open(os.path.join(TEST_DIR, "test_files", "contacts.csv"), "r") as contacts_csv_file:
-            self.contacts_csv = "".join(contacts_csv_file.readlines())
+        self.contacts_frame_thr_2nd_half = 50.0
+        self.pattern_contact = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
+        self.limits = check_limits(":25-45", "7-15")
+        self.traj = load_trajectory(os.path.join(TEST_FILES_DIR, "JQ679014_hinge_WT_ranked_0_20-frames.nc"),
+                                    os.path.join(TEST_FILES_DIR, "JQ679014_hinge_WT_ranked_0.parm"),
+                                    ":25-45")
+        self.traj_no_mask = load_trajectory(os.path.join(TEST_FILES_DIR, "JQ679014_hinge_WT_ranked_0_20-frames.nc"),
+                                            os.path.join(TEST_FILES_DIR, "JQ679014_hinge_WT_ranked_0.parm"))
+        self.rmsd = format_csv(os.path.join(TEST_FILES_DIR,
+                                            "RMSD_JQ679014_hinge_WT_ranked_0_20-frames_mask-25-45.csv"))
+        self.h_bonds = format_csv(os.path.join(TEST_FILES_DIR,
+                                               "h_bonds_JQ679014_hinge_WT_ranked_0_20-frames_mask-25-45.csv"))
+        self.contacts = format_csv(os.path.join(TEST_FILES_DIR,
+                                                "contacts_JQ679014_hinge_WT_ranked_0_20-frames_mask-25-45.csv"))
 
     def tearDown(self):
         # Clean temporary files
         shutil.rmtree(self.tmp_dir)
 
+    def test_limits(self):
+        self.assertEqual(check_limits(":25-45", "7-15"), self.limits)
+        self.assertNotEqual(check_limits(":12-32", "7-15"), self.limits)
+        self.assertRaises(argparse.ArgumentTypeError, check_limits, ":25-45", "7-55")
+        self.assertRaises(argparse.ArgumentTypeError, check_limits, ":25-45", "20-35")
+
     def test_rmsd(self):
         unique_id = str(uuid.uuid1())
-        observed = rmsd(self.traj, self.tmp_dir, unique_id, self.mask, self.format_output)
-        path_observed = os.path.join(self.tmp_dir, unique_id)
-        observed.to_csv(path_observed)
+        rmsd(self.traj, self.tmp_dir, unique_id, self.limits, self.format_output)
+        path_observed = os.path.join(self.tmp_dir, f"RMSD_{unique_id}.csv")
         with open(path_observed, "r") as observed_file:
             observed_rmsd_csv = "".join(observed_file.readlines())
-        self.assertEqual(observed_rmsd_csv, self.rmsd_csv)
+        self.assertEqual(observed_rmsd_csv, self.rmsd)
 
     def test_hydrogen_bonds(self):
         unique_id = str(uuid.uuid1())
-        observed = hydrogen_bonds(self.traj, self.tmp_dir, unique_id, self.mask, self.dist_thr,
-                                  self.contacts_frame_thr_2nd_half, self.format_output, self.pattern_contact)
+        h_bonds = hydrogen_bonds(self.traj, self.dist_thr, self.contacts_frame_thr_2nd_half, self.pattern_contact,
+                                 self.tmp_dir, unique_id)
         path_observed = os.path.join(self.tmp_dir, unique_id)
-        observed.to_csv(path_observed)
+        h_bonds.to_csv(path_observed, index=False)
         with open(path_observed, "r") as observed_file:
-            observed_h_bonds = "".join(observed_file.readlines())
-        self.assertEqual(observed_h_bonds, self.h_bonds_csv)
+            observed = "".join(observed_file.readlines())
+        self.assertEqual(observed, self.h_bonds)
 
-    # def test_contacts_csv(self):
-    #     unique_id = str(uuid.uuid1())
-    #     path_contacts_csv = os.path.join(self.tmp_dir, unique_id)
-    #     _ = contacts_csv(pd.read_csv(self.h_bonds_csv, index=False), path_contacts_csv)
-    #     with open(path_contacts_csv, "r") as observed_file:
-    #         observed_contacts = "".join(observed_file.readlines())
-    #     self.assertEqual(observed_contacts, self.contacts_csv)
+    def test_contacts_csv(self):
+        unique_id = str(uuid.uuid1())
+        h_bonds = hydrogen_bonds(self.traj, self.dist_thr, self.contacts_frame_thr_2nd_half, self.pattern_contact,
+                                 self.tmp_dir, unique_id)
+        _ = contacts_csv(h_bonds, self.tmp_dir, unique_id, self.pattern_contact, self.limits)
+        with open(os.path.join(self.tmp_dir, f"contacts_{unique_id}.csv"), "r") as observed_file:
+            observed_contacts = "".join(observed_file.readlines())
+        self.assertEqual(observed_contacts, self.contacts)
 
 
 if __name__ == "__main__":

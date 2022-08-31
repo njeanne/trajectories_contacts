@@ -118,7 +118,7 @@ def check_limits(mask, roi):
     return limits
 
 
-def load_trajectory(trajectory_file, topology_file, mask):
+def load_trajectory(trajectory_file, topology_file, mask=None):
     """
     Load a trajectory and apply a mask if mask argument is set.
 
@@ -131,7 +131,7 @@ def load_trajectory(trajectory_file, topology_file, mask):
     :return: the loaded trajectory.
     :rtype: pt.Trajectory
     """
-    traj = pt.iterload(trajectory_file, topology_file)
+    traj = pt.load(trajectory_file, topology_file)
     logging.info("Loading trajectory file:")
     if mask is not None:
         logging.info(f"\tApplied mask:\t{mask}\tPlease be patient..")
@@ -219,7 +219,7 @@ def sort_contacts(contact_names, pattern):
     return ordered
 
 
-def hydrogen_bonds(traj, dist_thr, contacts_frame_thr_2nd_half, pattern_hb):
+def hydrogen_bonds(traj, dist_thr, contacts_frame_thr_2nd_half, pattern_hb, out_dir, out_basename):
     """
     Get the polar bonds (hydrogen) between the different atoms of the protein during the molecular dynamics simulation.
 
@@ -232,6 +232,10 @@ def hydrogen_bonds(traj, dist_thr, contacts_frame_thr_2nd_half, pattern_hb):
     :type contacts_frame_thr_2nd_half: float
     :param pattern_hb: the pattern for the hydrogen bond name.
     :type pattern_hb: re.pattern
+    :param out_dir: the output directory.
+    :type out_dir: str
+    :param out_basename: the basename for the output CSV file.
+    :type out_basename: str
     :return: the dataframe of the polar contacts.
     :rtype: pd.DataFrame
     """
@@ -279,6 +283,9 @@ def hydrogen_bonds(traj, dist_thr, contacts_frame_thr_2nd_half, pattern_hb):
     ordered_columns = sort_contacts(data_hydrogen_bonds.keys(), pattern_hb)
     df = pd.DataFrame(data_hydrogen_bonds)
     df = df[ordered_columns]
+    out_path = os.path.join(out_dir, f"h_bonds_{out_basename}.csv")
+    df.to_csv(out_path, index=False)
+    logging.info(f"\tHydrogen bonds file saved: {out_path}")
 
     return df
 
@@ -350,7 +357,7 @@ def contacts_csv(df, out_dir, out_basename, pattern, limits):
             "whole_MD_mean_distance": [],
             "whole_MD_median_distance": []}
 
-    df_half = df.iloc[int(len(df.index)/2):]
+    df_second_half = df.iloc[int(len(df.index)/2):]
     for contact_id in df.columns[1:]:
         match = pattern.search(contact_id)
         if match:
@@ -373,8 +380,8 @@ def contacts_csv(df, out_dir, out_basename, pattern, limits):
             data["donor residue"].append(f"no match with {pattern.pattern}")
             data["acceptor position"].append(f"no match with {pattern.pattern}")
             data["acceptor_residue"].append(f"no match with {pattern.pattern}")
-        data["2nd_half_MD_mean_distance"].append(round(statistics.mean(df_half.loc[:, contact_id]), 2))
-        data["2nd_half_MD_median_distance"].append(round(statistics.median(df_half.loc[:, contact_id]), 2))
+        data["2nd_half_MD_mean_distance"].append(round(statistics.mean(df_second_half.loc[:, contact_id]), 2))
+        data["2nd_half_MD_median_distance"].append(round(statistics.median(df_second_half.loc[:, contact_id]), 2))
         data["whole_MD_mean_distance"].append(round(statistics.mean(df.loc[:, contact_id]), 2))
         data["whole_MD_median_distance"].append(round(statistics.median(df.loc[:, contact_id]), 2))
     contacts_stat = pd.DataFrame(data)
@@ -499,6 +506,8 @@ def heat_map_contacts(df_residues, distances_col, threshold_contact, out_basenam
     :type df_residues: pd.DataFrame
     :param distances_col: the column in the dataframe to get the distances.
     :type distances_col: str
+    :param threshold_contact: the maximal contact distance in Angstroms.
+    :type threshold_contact: float
     :param out_basename: the basename.
     :type out_basename: str
     :param out_dir: the output directory.
@@ -526,9 +535,13 @@ def heat_map_contacts(df_residues, distances_col, threshold_contact, out_basenam
     title = f"Contact residues {distances_col.replace('_', ' ')}: {out_basename}"
     plt.suptitle(title, fontsize="large", fontweight="bold")
     subtitle = f"Number of residues atoms in contact displayed in the squares"
-    if limits["roi"]:
-        subtitle = f"{subtitle}   Heatmap focus on donor residues {limits['mask']['min'] + limits['roi']['min']} to " \
-                   f"{limits['mask']['min'] + limits['roi']['max']}"
+    if limits["mask"] and limits["roi"]:
+        subtitle = f"{subtitle}\nHeatmap focus on donor residues {limits['mask']['min'] + limits['roi']['min'] - 1} " \
+                   f"to {limits['mask']['min'] + limits['roi']['max'] - 1}"
+    elif limits["mask"]:
+        subtitle = f"{subtitle}\nHeatmap focus on donor residues {limits['mask']['min']} to {limits['mask']['max']}"
+    elif limits["roi"]:
+        subtitle = f"{subtitle}\nHeatmap focus on donor residues {limits['roi']['min']} to {limits['roi']['max']}"
     plt.title(subtitle)
     plt.xlabel("Acceptors", fontweight="bold")
     plt.ylabel("Donors", fontweight="bold")
@@ -632,24 +645,31 @@ if __name__ == "__main__":
     basename = os.path.splitext(os.path.basename(args.input))[0]
     if limits_mask_roi["mask"]:
         basename = f"{basename}_mask-{limits_mask_roi['mask']['min']}-{limits_mask_roi['mask']['max']}"
-    rmsd(trajectory, args.out, basename, limits_mask_roi, args.format)
+    data_rmsd = rmsd(trajectory, args.out, basename, limits_mask_roi, args.format)
 
     # find the Hydrogen bonds
     pattern_contact = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
-    data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.second_half_percent, pattern_contact)
+    data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.second_half_percent, pattern_contact,
+                                  args.out, basename)
+
     if args.individual_plots:
         # plot individual contacts
         plot_individual_contacts(data_h_bonds, args.out, basename, args.distance_contacts, args.format)
 
     # write the CSV for the contacts
     stats = contacts_csv(data_h_bonds, args.out, basename, pattern_contact, limits_mask_roi)
+    # todo: remove read CSV
+    # stats = pd.read_csv(os.path.join(args.out, f"contacts_{basename}.csv"))
 
     # get the heat maps of validated contacts by residues for each column of the statistics dataframe
     hm_text = "Heat maps contacts:"
-    if args.roi_hm:
+    if args.mask and args.roi_hm:
         hm_text = f"Heat maps contacts on region of interest " \
                   f"{limits_mask_roi['mask']['min'] + limits_mask_roi['roi']['min'] - 1} to " \
                   f"{limits_mask_roi['mask']['min'] + limits_mask_roi['roi']['max'] - 1}:"
+    elif args.roi_hm:
+        hm_text = f"Heat maps contacts on region of interest {limits_mask_roi['roi']['min']} to " \
+                  f"{limits_mask_roi['roi']['max']}:"
     logging.info(hm_text)
     for distances_column_id in stats.columns[5:]:
         heat_map_contacts(stats, distances_column_id, args.distance_contacts, basename, args.out, args.format,
