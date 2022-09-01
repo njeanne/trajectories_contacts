@@ -58,6 +58,8 @@ class TestTrajectories(unittest.TestCase):
     def test_limits(self):
         self.assertEqual(check_limits(":25-45", "7-15"), self.limits)
         self.assertNotEqual(check_limits(":12-32", "7-15"), self.limits)
+        self.assertRaises(argparse.ArgumentTypeError, check_limits, ":25to45", "7-15")
+        self.assertRaises(argparse.ArgumentTypeError, check_limits, ":25-45", "7to15")
         self.assertRaises(argparse.ArgumentTypeError, check_limits, ":25-45", "7-55")
         self.assertRaises(argparse.ArgumentTypeError, check_limits, ":25-45", "20-35")
 
