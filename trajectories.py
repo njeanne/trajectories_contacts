@@ -118,7 +118,7 @@ def check_limits(mask, roi):
     return limits
 
 
-def load_trajectory(trajectory_file, topology_file, mask=None):
+def load_trajectory(trajectory_file, topology_file, out_dir, mask=None):
     """
     Load a trajectory and apply a mask if mask argument is set.
 
@@ -126,16 +126,23 @@ def load_trajectory(trajectory_file, topology_file, mask=None):
     :type trajectory_file: str
     :param topology_file: the topology file path.
     :type topology_file: str
+    :param out_dir: the output directory.
+    :type out_dir: str
     :param mask: the mask.
     :type mask: str
     :return: the loaded trajectory.
     :rtype: pt.Trajectory
     """
-    traj = pt.load(trajectory_file, topology_file)
     logging.info("Loading trajectory file:")
-    if mask is not None:
-        logging.info(f"\tApplied mask:\t{mask}\tPlease be patient..")
+    traj = pt.load(trajectory_file, topology_file)
+    if mask:
+        traj = pt.load(trajectory_file, topology_file)
+        logging.info(f"\tApplying mask:\t{mask}\tPlease be patient..")
         traj = traj[f"{mask}"]
+        path_traj_mask = os.path.join(out_dir, f"{os.path.splitext(os.path.basename(trajectory_file))[0]}_mask-"
+                                               f"{mask}.nc")
+        pt.save(path_traj_mask, traj, overwrite=True)
+        logging.info(f"\tTrajectory file with mask saved: {path_traj_mask}")
     logging.info(f"\tFrames:\t\t{traj.n_frames}")
     logging.info(f"\tMolecules:\t{traj.topology.n_mols}")
     logging.info(f"\tResidues:\t{traj.topology.n_residues}")
@@ -535,13 +542,17 @@ def heat_map_contacts(df_residues, distances_col, threshold_contact, out_basenam
     title = f"Contact residues {distances_col.replace('_', ' ')}: {out_basename}"
     plt.suptitle(title, fontsize="large", fontweight="bold")
     subtitle = f"Number of residues atoms in contact displayed in the squares"
-    if limits["mask"] and limits["roi"]:
-        subtitle = f"{subtitle}\nHeatmap focus on donor residues {limits['mask']['min'] + limits['roi']['min'] - 1} " \
-                   f"to {limits['mask']['min'] + limits['roi']['max'] - 1}"
-    elif limits["mask"]:
-        subtitle = f"{subtitle}\nHeatmap focus on donor residues {limits['mask']['min']} to {limits['mask']['max']}"
-    elif limits["roi"]:
-        subtitle = f"{subtitle}\nHeatmap focus on donor residues {limits['roi']['min']} to {limits['roi']['max']}"
+    try:
+        if limits["mask"] and limits["roi"]:
+            subtitle = f"{subtitle}\nHeatmap focus on donor residues " \
+                       f"{limits['mask']['min'] + limits['roi']['min'] - 1} to " \
+                       f"{limits['mask']['min'] + limits['roi']['max'] - 1}"
+        elif limits["mask"]:
+            subtitle = f"{subtitle}\nHeatmap focus on donor residues {limits['mask']['min']} to {limits['mask']['max']}"
+        elif limits["roi"]:
+            subtitle = f"{subtitle}\nHeatmap focus on donor residues {limits['roi']['min']} to {limits['roi']['max']}"
+    except ValueError as ve_exc:
+        logging.error(exc)
     plt.title(subtitle)
     plt.xlabel("Acceptors", fontweight="bold")
     plt.ylabel("Donors", fontweight="bold")
@@ -592,6 +603,9 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--second-half-percent", required=False, type=restricted_float, default=20.0,
                         help="the minimal percentage of frames which make contact between 2 atoms of different "
                              "residues in the second half of the molecular dynamics simulation, default is 20%%.")
+    parser.add_argument("-r", "--reload", required=False, action="store_true",
+                        help="reload an existing trajectory with a mask already applied to save computation time. The "
+                             "trajectory file will be searched in the output directory.")
     parser.add_argument("-i", "--individual-plots", required=False, action="store_true",
                         help="plot the individual contacts.")
     parser.add_argument("-l", "--log", required=False, type=str,
@@ -631,27 +645,33 @@ if __name__ == "__main__":
 
     # load the trajectory
     try:
-        trajectory = load_trajectory(args.input, args.topology, args.mask)
+        if args.reload:
+            trajectory = load_trajectory(args.input, args.topology, args.reload, args.out, args.mask)
+        else:
+            trajectory = load_trajectory(args.input, args.topology, args.mask)
     except RuntimeError as exc:
-        logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists. \
-        {exc}")
+        logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists",
+                      exc_info=True)
         sys.exit(1)
     except ValueError as exc:
-        logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists. \
-        {exc}")
+        logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists.",
+                      exc_info=True)
         sys.exit(1)
 
     # compute RMSD and create the plot
     basename = os.path.splitext(os.path.basename(args.input))[0]
     if limits_mask_roi["mask"]:
         basename = f"{basename}_mask-{limits_mask_roi['mask']['min']}-{limits_mask_roi['mask']['max']}"
-    data_rmsd = rmsd(trajectory, args.out, basename, limits_mask_roi, args.format)
+    rmsd(trajectory, args.out, basename, limits_mask_roi, args.format)
 
     # find the Hydrogen bonds
     pattern_contact = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
     data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.second_half_percent, pattern_contact,
                                   args.out, basename)
-
+    # todo: remove load csv
+    # h_bonds_csv = pd.read_csv(os.path.join(args.out, "h_bonds.csv"))
+    # print(h_bonds_csv)
+    # sys.exit()
     if args.individual_plots:
         # plot individual contacts
         plot_individual_contacts(data_h_bonds, args.out, basename, args.distance_contacts, args.format)
@@ -659,7 +679,8 @@ if __name__ == "__main__":
     # write the CSV for the contacts
     stats = contacts_csv(data_h_bonds, args.out, basename, pattern_contact, limits_mask_roi)
     # todo: remove read CSV
-    # stats = pd.read_csv(os.path.join(args.out, f"contacts_{basename}.csv"))
+    # stats = pd.read_csv(os.path.join(args.out, f"contacts_{basename}_mask-{limits_mask_roi['mask']['min']}-"
+    #                                            f"{limits_mask_roi['mask']['max']}.csv"))
 
     # get the heat maps of validated contacts by residues for each column of the statistics dataframe
     hm_text = "Heat maps contacts:"

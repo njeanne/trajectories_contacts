@@ -41,9 +41,9 @@ class TestTrajectories(unittest.TestCase):
         self.limits = check_limits(":25-45", "7-15")
         self.traj = load_trajectory(os.path.join(TEST_FILES_DIR, "JQ679014_hinge_WT_ranked_0_20-frames.nc"),
                                     os.path.join(TEST_FILES_DIR, "JQ679014_hinge_WT_ranked_0.parm"),
-                                    ":25-45")
-        self.traj_no_mask = load_trajectory(os.path.join(TEST_FILES_DIR, "JQ679014_hinge_WT_ranked_0_20-frames.nc"),
-                                            os.path.join(TEST_FILES_DIR, "JQ679014_hinge_WT_ranked_0.parm"))
+                                    self.tmp_dir, ":25-45")
+        # self.traj_no_mask = load_trajectory(os.path.join(TEST_FILES_DIR, "JQ679014_hinge_WT_ranked_0_20-frames.nc"),
+        #                                     os.path.join(TEST_FILES_DIR, "JQ679014_hinge_WT_ranked_0.parm"))
         self.rmsd = format_csv(os.path.join(TEST_FILES_DIR,
                                             "RMSD_JQ679014_hinge_WT_ranked_0_20-frames_mask-25-45.csv"))
         self.h_bonds = format_csv(os.path.join(TEST_FILES_DIR,
