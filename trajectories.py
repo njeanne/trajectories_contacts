@@ -542,17 +542,14 @@ def heat_map_contacts(df_residues, distances_col, threshold_contact, out_basenam
     title = f"Contact residues {distances_col.replace('_', ' ')}: {out_basename}"
     plt.suptitle(title, fontsize="large", fontweight="bold")
     subtitle = f"Number of residues atoms in contact displayed in the squares"
-    try:
-        if limits["mask"] and limits["roi"]:
-            subtitle = f"{subtitle}\nHeatmap focus on donor residues " \
-                       f"{limits['mask']['min'] + limits['roi']['min'] - 1} to " \
-                       f"{limits['mask']['min'] + limits['roi']['max'] - 1}"
-        elif limits["mask"]:
-            subtitle = f"{subtitle}\nHeatmap focus on donor residues {limits['mask']['min']} to {limits['mask']['max']}"
-        elif limits["roi"]:
-            subtitle = f"{subtitle}\nHeatmap focus on donor residues {limits['roi']['min']} to {limits['roi']['max']}"
-    except ValueError as ve_exc:
-        logging.error(exc)
+    if limits["mask"] and limits["roi"]:
+        subtitle = f"{subtitle}\nHeatmap focus on donor residues " \
+                   f"{limits['mask']['min'] + limits['roi']['min'] - 1} to " \
+                   f"{limits['mask']['min'] + limits['roi']['max'] - 1}"
+    elif limits["mask"]:
+        subtitle = f"{subtitle}\nHeatmap focus on donor residues {limits['mask']['min']} to {limits['mask']['max']}"
+    elif limits["roi"]:
+        subtitle = f"{subtitle}\nHeatmap focus on donor residues {limits['roi']['min']} to {limits['roi']['max']}"
     plt.title(subtitle)
     plt.xlabel("Acceptors", fontweight="bold")
     plt.ylabel("Donors", fontweight="bold")
@@ -561,6 +558,7 @@ def heat_map_contacts(df_residues, distances_col, threshold_contact, out_basenam
     # clear the plot for the next use of the function
     plt.clf()
     logging.info(f"\t{distances_col} heat map saved: {out_path}")
+
 
 
 if __name__ == "__main__":
@@ -693,5 +691,9 @@ if __name__ == "__main__":
                   f"{limits_mask_roi['roi']['max']}:"
     logging.info(hm_text)
     for distances_column_id in stats.columns[5:]:
-        heat_map_contacts(stats, distances_column_id, args.distance_contacts, basename, args.out, args.format,
-                          limits_mask_roi)
+        try:
+            heat_map_contacts(stats, distances_column_id, args.distance_contacts, basename, args.out, args.format,
+                              limits_mask_roi)
+        except ValueError as ve_exc:
+            logging.error(f"no heatmap created for distances column '{distances_column_id}', check contacts CSV file.",
+                          exc_info=True)
