@@ -601,9 +601,6 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--second-half-percent", required=False, type=restricted_float, default=20.0,
                         help="the minimal percentage of frames which make contact between 2 atoms of different "
                              "residues in the second half of the molecular dynamics simulation, default is 20%%.")
-    parser.add_argument("-r", "--reload", required=False, action="store_true",
-                        help="reload an existing trajectory with a mask already applied to save computation time. The "
-                             "trajectory file will be searched in the output directory.")
     parser.add_argument("-i", "--individual-plots", required=False, action="store_true",
                         help="plot the individual contacts.")
     parser.add_argument("-l", "--log", required=False, type=str,
@@ -643,10 +640,7 @@ if __name__ == "__main__":
 
     # load the trajectory
     try:
-        if args.reload:
-            trajectory = load_trajectory(args.input, args.topology, args.reload, args.out, args.mask)
-        else:
-            trajectory = load_trajectory(args.input, args.topology, args.mask)
+        trajectory = load_trajectory(args.input, args.topology, args.out, args.mask)
     except RuntimeError as exc:
         logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists",
                       exc_info=True)
@@ -666,10 +660,10 @@ if __name__ == "__main__":
     pattern_contact = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
     data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.second_half_percent, pattern_contact,
                                   args.out, basename)
-    # todo: remove load csv
-    # h_bonds_csv = pd.read_csv(os.path.join(args.out, "h_bonds.csv"))
-    # print(h_bonds_csv)
-    # sys.exit()
+    # # todo: remove load csv
+    # data_h_bonds = pd.read_csv(os.path.join(args.out, "h_bonds.csv"))
+    # print(data_h_bonds)
+
     if args.individual_plots:
         # plot individual contacts
         plot_individual_contacts(data_h_bonds, args.out, basename, args.distance_contacts, args.format)
