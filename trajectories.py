@@ -660,9 +660,6 @@ if __name__ == "__main__":
     pattern_contact = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
     data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.second_half_percent, pattern_contact,
                                   args.out, basename)
-    # # todo: remove load csv
-    # data_h_bonds = pd.read_csv(os.path.join(args.out, "h_bonds.csv"))
-    # print(data_h_bonds)
 
     if args.individual_plots:
         # plot individual contacts
@@ -670,9 +667,6 @@ if __name__ == "__main__":
 
     # write the CSV for the contacts
     stats = contacts_csv(data_h_bonds, args.out, basename, pattern_contact, limits_mask_roi)
-    # todo: remove read CSV
-    # stats = pd.read_csv(os.path.join(args.out, f"contacts_{basename}_mask-{limits_mask_roi['mask']['min']}-"
-    #                                            f"{limits_mask_roi['mask']['max']}.csv"))
 
     # get the heat maps of validated contacts by residues for each column of the statistics dataframe
     hm_text = "Heat maps contacts:"
