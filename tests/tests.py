@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 
-__author__ = 'Nicolas Jeanne'
-__copyright__ = 'Copyright (C) 2022 CHU-Toulouse'
-__license__ = 'GNU General Public License'
-__version__ = '1.0.0'
-__email__ = 'jeanne.n@chu-toulouse.fr'
+__author__ = "Nicolas Jeanne"
+__license__ = "GNU General Public License"
+__version__ = "1.0.0"
+__email__ = "jeanne.n@chu-toulouse.fr"
 
 import argparse
 import os
