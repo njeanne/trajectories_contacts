@@ -560,7 +560,6 @@ def heat_map_contacts(df_residues, distances_col, threshold_contact, out_basenam
     logging.info(f"\t{distances_col} heat map saved: {out_path}")
 
 
-
 if __name__ == "__main__":
     descr = f"""
     {os.path.basename(__file__)} v. {__version__}
