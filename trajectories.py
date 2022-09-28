@@ -7,7 +7,7 @@ Created on 17 Mar. 2022
 __author__ = "Nicolas JEANNE"
 __copyright__ = "GNU General Public License"
 __email__ = "jeanne.n@chu-toulouse.fr"
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 import argparse
 import logging
@@ -339,10 +339,9 @@ def plot_individual_contacts(df, out_dir, out_basename, dist_thr, format_output)
     logging.info(f"\t{nb_plots}/{len(df.columns[1:])} inter residues atoms contacts plot saved in {contacts_plots_dir}")
 
 
-def contacts_csv(df, out_dir, out_basename, pattern, limits):
+def contacts_csv(df, out_dir, out_basename, pattern):
     """
-    Get the mean and median distances for the contacts in the whole molecular dynamics simulation and in the second
-    half of the simulation.
+    Get the median distances for the contacts in the molecular dynamics.
 
     :param df: the contacts dataframe.
     :type df: pd.DataFrame
@@ -352,36 +351,23 @@ def contacts_csv(df, out_dir, out_basename, pattern, limits):
     :type out_basename: str
     :param pattern: the pattern for the contact.
     :type pattern: re.pattern
-    :param limits: the mask and heat map region of interest limits.
-    :type limits: dict
     :return: the dataframe of the contacts statistics.
     :rtype: pd.DataFrame
     """
+    logging.info("Inter-residues atoms contacts:")
     data = {"contact": [],
             "donor position": [],
             "donor residue": [],
             "acceptor position": [],
             "acceptor residue": [],
-            "2nd_half_MD_mean_distance": [],
-            "2nd_half_MD_median_distance": [],
-            "whole_MD_mean_distance": [],
-            "whole_MD_median_distance": []}
+            "median distance": []}
 
-    df_second_half = df.iloc[int(len(df.index)/2):]
     for contact_id in df.columns[1:]:
         match = pattern.search(contact_id)
         if match:
-            if limits["mask"]:
-                donor_position = int(match.group(2)) + limits["mask"]["min"] - 1
-                acceptor_position = int(match.group(5)) + limits["mask"]["min"] - 1
-                data["contact"].append(f"{match.group(1)}{donor_position}_{match.group(3)}-"
-                                       f"{match.group(4)}{acceptor_position}_{match.group(6)}")
-                data["donor position"].append(donor_position)
-                data["acceptor position"].append(acceptor_position)
-            else:
-                data["contact"].append(contact_id)
-                data["donor position"].append(int(match.group(2)))
-                data["acceptor position"].append(int(match.group(5)))
+            data["contact"].append(contact_id)
+            data["donor position"].append(int(match.group(2)))
+            data["acceptor position"].append(int(match.group(5)))
             data["donor residue"].append(match.group(1))
             data["acceptor residue"].append(match.group(4))
         else:
@@ -390,19 +376,16 @@ def contacts_csv(df, out_dir, out_basename, pattern, limits):
             data["donor residue"].append(f"no match with {pattern.pattern}")
             data["acceptor position"].append(f"no match with {pattern.pattern}")
             data["acceptor_residue"].append(f"no match with {pattern.pattern}")
-        data["2nd_half_MD_mean_distance"].append(round(statistics.mean(df_second_half.loc[:, contact_id]), 2))
-        data["2nd_half_MD_median_distance"].append(round(statistics.median(df_second_half.loc[:, contact_id]), 2))
-        data["whole_MD_mean_distance"].append(round(statistics.mean(df.loc[:, contact_id]), 2))
-        data["whole_MD_median_distance"].append(round(statistics.median(df.loc[:, contact_id]), 2))
+        data["median distance"].append(round(statistics.median(df.loc[:, contact_id]), 2))
     contacts_stat = pd.DataFrame(data)
     out_path = os.path.join(out_dir, f"contacts_{out_basename}.csv")
     contacts_stat.to_csv(out_path, index=False)
-    logging.info(f"Inter residues atoms contacts CSV saved: {out_path}")
+    logging.info(f"\tcontacts CSV saved: {out_path}")
 
     return contacts_stat
 
 
-def reduce_contacts_dataframe(raw_df, dist_col, thr, lim):
+def reduce_contacts_dataframe(raw_df, thr, roi_lim):
     """
     The dataframe are filtered on the values under the distance threshold, then when multiple rows of the same
     combination of donor and acceptor residues keep the one with the minimal contact distance (between the atoms of
@@ -410,12 +393,10 @@ def reduce_contacts_dataframe(raw_df, dist_col, thr, lim):
 
     :param raw_df: the contact residues dataframe.
     :type raw_df: pd.Dataframe
-    :param dist_col: the name of the distances column.
-    :type dist_col: str
     :param thr: the distance threshold.
     :type thr: float
-    :param lim: the mask and heat map region of interest limits.
-    :type lim: dict
+    :param roi_lim: the region of interest limits for the heat-map.
+    :type roi_lim: dict
     :return: the reduced dataframe with the minimal distance value of all the couples of donors-acceptors and the
     column with the number of contacts.
     :rtype: pd.Dataframe
@@ -424,13 +405,10 @@ def reduce_contacts_dataframe(raw_df, dist_col, thr, lim):
     raw_df["donor position"] = pd.to_numeric(raw_df["donor position"])
     raw_df["acceptor position"] = pd.to_numeric(raw_df["acceptor position"])
     # get only the rows with a contact distance less or equal to the threshold
-    df = raw_df[raw_df[dist_col].between(0.0, thr)]
+    df = raw_df[raw_df["median distance"].between(0.0, thr)]
     # select rows of the dataframe if limits for the heat map were set
-    if lim["mask"] and lim["roi"]:
-        df = df[df["donor position"].between(lim["mask"]["min"] + lim["roi"]["min"] - 1,
-                                             lim["mask"]["min"] + lim["roi"]["max"] - 1)]
-    elif lim["roi"]:
-        df = df[df["donor position"].between(lim["roi"]["min"], lim["roi"]["max"])]
+    if roi_lim:
+        df = df[df["donor position"].between(roi_lim["min"], roi_lim["max"])]
     # donors_acceptors is used to register the combination of donor and acceptor and select only the value with the
     # minimal contact distance and also the number of contacts
     donors_acceptors = []
@@ -444,7 +422,7 @@ def reduce_contacts_dataframe(raw_df, dist_col, thr, lim):
             tmp_df = df[
                 (df["donor position"] == row["donor position"]) & (df["acceptor position"] == row["acceptor position"])]
             # get the index of the minimal distance
-            idx_min = tmp_df[[dist_col]].idxmin()
+            idx_min = tmp_df[["median distance"]].idxmin()
             # record the index to remove of the other rows of the same donor - acceptor positions
             tmp_index_to_remove = list(tmp_df.index.drop(idx_min))
             if tmp_index_to_remove:
@@ -455,14 +433,12 @@ def reduce_contacts_dataframe(raw_df, dist_col, thr, lim):
     return df
 
 
-def get_df_distances_nb_contacts(df, dist_col):
+def get_df_distances_nb_contacts(df):
     """
     Create a distances and a number of contacts dataframes for the couples donors and acceptors.
 
     :param df: the initial dataframe
     :type df: pd.Dataframe
-    :param dist_col: the name of the distances column to use.
-    :type dist_col: str
     :return: the dataframe of distances and the dataframe of the number of contacts.
     :rtype: pd.Dataframe, pd.Dataframe
     """
@@ -487,7 +463,7 @@ def get_df_distances_nb_contacts(df, dist_col):
             if acceptor_position not in distances:
                 distances[acceptor_position] = []
             dist = df.loc[(df["donor position"] == donor_position) & (df["acceptor position"] == acceptor_position),
-                          dist_col]
+                          "median distance"]
             if not dist.empty:
                 distances[acceptor_position].append(dist.values[0])
             else:
@@ -508,14 +484,12 @@ def get_df_distances_nb_contacts(df, dist_col):
     return source_distances, source_nb_contacts
 
 
-def heat_map_contacts(df_residues, distances_col, threshold_contact, out_basename, out_dir, output_fmt, limits):
+def heat_map_contacts(df_residues, threshold_contact, out_basename, out_dir, output_fmt, lim_roi):
     """
     Create the heat map of contacts between residues.
 
     :param df_residues: the statistics dataframe.
     :type df_residues: pd.DataFrame
-    :param distances_col: the column in the dataframe to get the distances.
-    :type distances_col: str
     :param threshold_contact: the maximal contact distance in Angstroms.
     :type threshold_contact: float
     :param out_basename: the basename.
@@ -524,14 +498,14 @@ def heat_map_contacts(df_residues, distances_col, threshold_contact, out_basenam
     :type out_dir: str
     :param output_fmt: the output format for the heat map.
     :type output_fmt: str
-    :param limits: the mask and heat map region of interest limits.
-    :type limits: dict
+    :param lim_roi: the region of interest limits for the heat-map.
+    :type lim_roi: dict
     """
     # keep only the minimal distance between 2 residues and add the number of contacts
-    df_residues = reduce_contacts_dataframe(df_residues, distances_col, threshold_contact, limits)
+    df_residues = reduce_contacts_dataframe(df_residues, threshold_contact, lim_roi)
 
     # create the distances and number of contacts dataframes to produce the heat map
-    source_distances, source_nb_contacts = get_df_distances_nb_contacts(df_residues, distances_col)
+    source_distances, source_nb_contacts = get_df_distances_nb_contacts(df_residues)
 
     # increase the size of the heatmap if too much entries
     factor = int(len(source_distances) / 40) if len(source_distances) / 40 >= 1 else 1
@@ -542,28 +516,19 @@ def heat_map_contacts(df_residues, distances_col, threshold_contact, out_basenam
                           linewidths=0.5, xticklabels=True, yticklabels=True)
     heatmap.figure.axes[-1].yaxis.label.set_size(15)
     plot = heatmap.get_figure()
-    title = f"Contact residues {distances_col.replace('_', ' ')}: {out_basename}"
+    title = f"Contact residues median distance: {out_basename}"
     plt.suptitle(title, fontsize="large", fontweight="bold")
     subtitle = f"Number of residues atoms in contact displayed in the squares"
-    try:
-        if limits["mask"] and limits["roi"]:
-            subtitle = f"{subtitle}\nHeatmap focus on donor residues " \
-                       f"{limits['mask']['min'] + limits['roi']['min'] - 1} to " \
-                       f"{limits['mask']['min'] + limits['roi']['max'] - 1}"
-        elif limits["mask"]:
-            subtitle = f"{subtitle}\nHeatmap focus on donor residues {limits['mask']['min']} to {limits['mask']['max']}"
-        elif limits["roi"]:
-            subtitle = f"{subtitle}\nHeatmap focus on donor residues {limits['roi']['min']} to {limits['roi']['max']}"
-    except ValueError as ve_exc:
-        logging.error(exc)
+    if lim_roi:
+        subtitle = f"{subtitle}\nHeatmap focus on donor residues {lim_roi['min']} to {lim_roi['max']}"
     plt.title(subtitle)
     plt.xlabel("Acceptors", fontweight="bold")
     plt.ylabel("Donors", fontweight="bold")
-    out_path = os.path.join(out_dir, f"heatmap_{distances_col.replace(' ', '-')}_{out_basename}.{output_fmt}")
+    out_path = os.path.join(out_dir, f"heatmap_median_distance_{out_basename}.{output_fmt}")
     plot.savefig(out_path)
     # clear the plot for the next use of the function
     plt.clf()
-    logging.info(f"\t{distances_col} heat map saved: {out_path}")
+    logging.info(f"\tmedian distance heat-map saved: {out_path}")
 
 
 if __name__ == "__main__":
