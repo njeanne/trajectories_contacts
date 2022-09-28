@@ -107,7 +107,7 @@ def check_limits(frames, roi):
     return frames_lim, roi_lim
 
 
-def load_trajectory(trajectory_file, topology_file, out_dir, frames=None, mask=None):
+def load_trajectory(trajectory_file, topology_file, out_dir, frames=None):
     """
     Load a trajectory and apply a mask if mask argument is set.
 
@@ -119,8 +119,6 @@ def load_trajectory(trajectory_file, topology_file, out_dir, frames=None, mask=N
     :type out_dir: str
     :param frames: the frames to use.
     :type frames: str
-    :param mask: the mask to apply.
-    :type mask: str
     :return: the loaded trajectory.
     :rtype: pt.Trajectory
     """
@@ -130,26 +128,19 @@ def load_trajectory(trajectory_file, topology_file, out_dir, frames=None, mask=N
         frames_split = frames.split("-")
         frame_indices = range(int(frames_split[0]), int(frames_split[1]))
         logging.info(f"\tUsing frames:\t{frame_indices[0]} to {frame_indices[-1] + 1}")
-    if mask:
-        logging.info(f"\tApplying mask:\t{mask}")
 
     logging.info("\tComputing trajectory, please be patient..")
-    traj = pt.load(trajectory_file, top=topology_file, frame_indices=frame_indices, mask=mask)
+    traj = pt.load(trajectory_file, top=topology_file, frame_indices=frame_indices)
 
-    if mask or frames:
-        path_traj_out = os.path.join(out_dir, os.path.splitext(os.path.basename(trajectory_file))[0])
-        if mask:
-            path_traj_out = f"{path_traj_out}_mask-{mask}"
-        if frames:
-            path_traj_out = f"{path_traj_out}_frames-{frame_indices[0]}-{frame_indices[-1] + 1}"
-        path_traj_out = f"{path_traj_out}.nc"
+    if frames:
+        path_traj_out = os.path.join(out_dir, f"{os.path.splitext(os.path.basename(trajectory_file))[0]}_"
+                                              f"frames-{frame_indices[0]}-{frame_indices[-1] + 1}.nc")
         pt.save(path_traj_out, traj, overwrite=True)
-        logging.info(f"\tTrajectory file with mask saved: {path_traj_out}")
+        logging.info(f"\tTrajectory file with frames selection saved: {path_traj_out}")
     logging.info(f"\tFrames:\t\t{traj.n_frames}")
     logging.info(f"\tMolecules:\t{traj.topology.n_mols}")
     logging.info(f"\tResidues:\t{traj.topology.n_residues}")
     logging.info(f"\tAtoms:\t\t{traj.topology.n_atoms}")
-
     return traj
 
 
@@ -172,7 +163,7 @@ def rmsd(traj, out_dir, out_basename, format_output, frames_lim=None, mask=None)
     """
     logging.info("RMSD computation:")
     path_basename = os.path.join(out_dir, f"RMSD_{out_basename}")
-    rmsd_traj = pt.rmsd(traj, ref=0)
+    rmsd_traj = pt.rmsd(traj, mask=mask, ref=0)
     if frames_lim:
         range_frames = [x + frames_lim["min"] for x in range(traj.n_frames)]
     else:
@@ -262,7 +253,7 @@ def hydrogen_bonds(traj, dist_thr, contacts_frame_thr_2nd_half, pattern_hb, out_
     h_bonds = pt.hbond(traj, distance=dist_thr)
     nb_total_contacts = len(h_bonds.data) - 1
     dist = pt.distance(traj, h_bonds.get_amber_mask()[0])
-    logging.info(f"Search for inter residues polar contacts in {nb_total_contacts} total polar contacts:")
+    logging.info(f"Search for inter-residues polar contacts in {nb_total_contacts} total polar contacts:")
 
     nb_intra_residue_contacts = 0
     nb_frames_contacts_2nd_half_thr = 0
@@ -328,7 +319,7 @@ def plot_individual_contacts(df, out_dir, out_basename, dist_thr, format_output)
     os.makedirs(contacts_plots_dir, exist_ok=True)
 
     # plot all the contacts
-    logging.info("Creating individual plots for inter residues atoms contacts.")
+    logging.info("Creating individual plots for inter-residues atoms contacts.")
     nb_plots = 0
     for contact_id in df.columns[1:]:
         source = df[["frames", contact_id]]
@@ -585,10 +576,12 @@ if __name__ == "__main__":
 
     Distributed on an "AS IS" basis without warranties or conditions of any kind, either express or implied.
 
-    From a molecular dynamics trajectory file and eventually a mask selection
-    (https://amber-md.github.io/pytraj/latest/atom_mask_selection.html#examples-atom-mask-selection-for-trajectory),
-    perform trajectory analysis. The script computes the Root Mean Square Deviation (RMSD) and the hydrogen contacts
-    between atoms of two different residues represented as a CSV file and heat-maps.
+    From a molecular dynamics trajectory file perform trajectory analysis. The script computes the Root Mean Square 
+    Deviation (RMSD) and the hydrogen contacts between atoms of two different residues represented as a CSV file and 
+    heat-maps.
+    WARNING: the mask selection is only used to compute the RMSD plot not for loading the trajectory because if the 
+    mask defined the backbone, no hydrogen bond will be find.
+    See: https://amber-md.github.io/pytraj/latest/atom_mask_selection.html#examples-atom-mask-selection-for-trajectory
     """
     parser = argparse.ArgumentParser(description=descr, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-o", "--out", required=True, type=str, help="the path to the output directory.")
@@ -598,8 +591,8 @@ if __name__ == "__main__":
                         help="the frames to load from the trajectory, the format must be two integers separated by "
                              "an hyphen, i.e to load the trajectory from the frame 500 to 2000: --frames 500-2000")
     parser.add_argument("-m", "--mask", required=False, type=str,
-                        help="the residues mask selection, the format should be a colon and two integers separated by "
-                             "an hyphen, i.e: --mask :682-850")
+                        help="Only used for the RMSD computation, the residues mask selection format is defined in "
+                             "amber documentation.")
     parser.add_argument("-r", "--roi-hm", required=False, type=str,
                         help="the boundaries of the region to display in the heatmap within the mask selection if any. "
                              "In example if the mask '682-850' is applied and the region of interest for the "
@@ -657,7 +650,7 @@ if __name__ == "__main__":
 
     # load the trajectory
     try:
-        trajectory = load_trajectory(args.input, args.topology, args.out, args.frames, args.mask)
+        trajectory = load_trajectory(args.input, args.topology, args.out, args.frames)
     except RuntimeError as exc:
         logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists",
                       exc_info=True)
@@ -669,38 +662,19 @@ if __name__ == "__main__":
 
     # compute RMSD and create the plot
     basename = os.path.splitext(os.path.basename(args.input))[0]
-    if limits_mask_roi["mask"]:
-        basename = f"{basename}_mask-{limits_mask_roi['mask']['min']}-{limits_mask_roi['mask']['max']}"
-    rmsd(trajectory, args.out, basename, limits_mask_roi, args.format)
+    rmsd(trajectory, args.out, basename, args.format, frames_limits, args.mask)
 
     # find the Hydrogen bonds
     pattern_contact = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
     data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.second_half_percent, pattern_contact,
                                   args.out, basename)
-    # todo: remove load csv
-    # h_bonds_csv = pd.read_csv(os.path.join(args.out, "h_bonds.csv"))
-    # print(h_bonds_csv)
-    # sys.exit()
+
     if args.individual_plots:
         # plot individual contacts
         plot_individual_contacts(data_h_bonds, args.out, basename, args.distance_contacts, args.format)
 
     # write the CSV for the contacts
-    stats = contacts_csv(data_h_bonds, args.out, basename, pattern_contact, limits_mask_roi)
-    # todo: remove read CSV
-    # stats = pd.read_csv(os.path.join(args.out, f"contacts_{basename}_mask-{limits_mask_roi['mask']['min']}-"
-    #                                            f"{limits_mask_roi['mask']['max']}.csv"))
+    stats = contacts_csv(data_h_bonds, args.out, basename, pattern_contact)
 
     # get the heat maps of validated contacts by residues for each column of the statistics dataframe
-    hm_text = "Heat maps contacts:"
-    if args.mask and args.roi_hm:
-        hm_text = f"Heat maps contacts on region of interest " \
-                  f"{limits_mask_roi['mask']['min'] + limits_mask_roi['roi']['min'] - 1} to " \
-                  f"{limits_mask_roi['mask']['min'] + limits_mask_roi['roi']['max'] - 1}:"
-    elif args.roi_hm:
-        hm_text = f"Heat maps contacts on region of interest {limits_mask_roi['roi']['min']} to " \
-                  f"{limits_mask_roi['roi']['max']}:"
-    logging.info(hm_text)
-    for distances_column_id in stats.columns[5:]:
-        heat_map_contacts(stats, distances_column_id, args.distance_contacts, basename, args.out, args.format,
-                          limits_mask_roi)
+    heat_map_contacts(stats, args.distance_contacts, basename, args.out, args.format, roi_limits)
