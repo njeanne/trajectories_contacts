@@ -229,7 +229,7 @@ def sort_contacts(contact_names, pattern):
     return ordered
 
 
-def hydrogen_bonds(traj, dist_thr, contacts_frame_thr_2nd_half, pattern_hb, out_dir, out_basename):
+def hydrogen_bonds(traj, dist_thr, contacts_frame_thr_2nd_half, pattern_hb, out_dir, out_basename, lim_frames=None):
     """
     Get the polar bonds (hydrogen) between the different atoms of the protein during the molecular dynamics simulation.
 
@@ -246,6 +246,8 @@ def hydrogen_bonds(traj, dist_thr, contacts_frame_thr_2nd_half, pattern_hb, out_
     :type out_dir: str
     :param out_basename: the basename for the output CSV file.
     :type out_basename: str
+    :param lim_frames: the frames used in the trajectory.
+    :type lim_frames: dict
     :return: the dataframe of the polar contacts.
     :rtype: pd.DataFrame
     """
@@ -293,7 +295,9 @@ def hydrogen_bonds(traj, dist_thr, contacts_frame_thr_2nd_half, pattern_hb, out_
     ordered_columns = sort_contacts(data_hydrogen_bonds.keys(), pattern_hb)
     df = pd.DataFrame(data_hydrogen_bonds)
     df = df[ordered_columns]
-    out_path = os.path.join(out_dir, f"h_bonds_{out_basename}.csv")
+    if lim_frames:
+        df["frames"] = [x + lim_frames["min"] for x in list(df["frames"])]
+    out_path = os.path.join(out_dir, f"h_bonds_by_frame_{out_basename}.csv")
     df.to_csv(out_path, index=False)
     logging.info(f"\tHydrogen bonds file saved: {out_path}")
 
@@ -395,7 +399,7 @@ def reduce_contacts_dataframe(raw_df, thr, roi_lim):
     :type raw_df: pd.Dataframe
     :param thr: the distance threshold.
     :type thr: float
-    :param roi_lim: the region of interest limits for the heat-map.
+    :param roi_lim: the region of interest limits for the heatmap.
     :type roi_lim: dict
     :return: the reduced dataframe with the minimal distance value of all the couples of donors-acceptors and the
     column with the number of contacts.
@@ -406,7 +410,7 @@ def reduce_contacts_dataframe(raw_df, thr, roi_lim):
     raw_df["acceptor position"] = pd.to_numeric(raw_df["acceptor position"])
     # get only the rows with a contact distance less or equal to the threshold
     df = raw_df[raw_df["median distance"].between(0.0, thr)]
-    # select rows of the dataframe if limits for the heat map were set
+    # select rows of the dataframe if limits for the heatmap were set
     if roi_lim:
         df = df[df["donor position"].between(roi_lim["min"], roi_lim["max"])]
     # donors_acceptors is used to register the combination of donor and acceptor and select only the value with the
@@ -484,9 +488,9 @@ def get_df_distances_nb_contacts(df):
     return source_distances, source_nb_contacts
 
 
-def heat_map_contacts(df_residues, threshold_contact, out_basename, out_dir, output_fmt, lim_roi):
+def heatmap_contacts(df_residues, threshold_contact, out_basename, out_dir, output_fmt, lim_roi, lim_frames):
     """
-    Create the heat map of contacts between residues.
+    Create the heatmap of contacts between residues.
 
     :param df_residues: the statistics dataframe.
     :type df_residues: pd.DataFrame
@@ -496,31 +500,35 @@ def heat_map_contacts(df_residues, threshold_contact, out_basename, out_dir, out
     :type out_basename: str
     :param out_dir: the output directory.
     :type out_dir: str
-    :param output_fmt: the output format for the heat map.
+    :param output_fmt: the output format for the heatmap.
     :type output_fmt: str
-    :param lim_roi: the region of interest limits for the heat-map.
+    :param lim_roi: the region of interest limits for the heatmap.
     :type lim_roi: dict
+    :param lim_frames: the frames used in the trajectory.
+    :type lim_frames: dict
     """
     # keep only the minimal distance between 2 residues and add the number of contacts
     df_residues = reduce_contacts_dataframe(df_residues, threshold_contact, lim_roi)
 
-    # create the distances and number of contacts dataframes to produce the heat map
+    # create the distances and number of contacts dataframes to produce the heatmap
     source_distances, source_nb_contacts = get_df_distances_nb_contacts(df_residues)
 
     # increase the size of the heatmap if too much entries
     factor = int(len(source_distances) / 40) if len(source_distances) / 40 >= 1 else 1
     logging.debug(f"{len(source_distances)} entries, the size of the figure is multiplied by a factor {factor}.")
     rcParams["figure.figsize"] = 15 * factor, 12 * factor
-    # create the heat map
+    # create the heatmap
     heatmap = sns.heatmap(source_distances, annot=source_nb_contacts, cbar_kws={"label": "Distance (\u212B)"},
                           linewidths=0.5, xticklabels=True, yticklabels=True)
     heatmap.figure.axes[-1].yaxis.label.set_size(15)
     plot = heatmap.get_figure()
     title = f"Contact residues median distance: {out_basename}"
     plt.suptitle(title, fontsize="large", fontweight="bold")
-    subtitle = f"Number of residues atoms in contact displayed in the squares"
+    subtitle = "Number of residues atoms in contact are displayed in the squares."
     if lim_roi:
         subtitle = f"{subtitle}\nHeatmap focus on donor residues {lim_roi['min']} to {lim_roi['max']}"
+    if lim_frames:
+        subtitle = f"{subtitle}\nMolecular dynamics frames used: {lim_frames['min']} to {lim_frames['max']}"
     plt.title(subtitle)
     plt.xlabel("Acceptors", fontweight="bold")
     plt.ylabel("Donors", fontweight="bold")
@@ -528,7 +536,7 @@ def heat_map_contacts(df_residues, threshold_contact, out_basename, out_dir, out
     plot.savefig(out_path)
     # clear the plot for the next use of the function
     plt.clf()
-    logging.info(f"\tmedian distance heat-map saved: {out_path}")
+    logging.info(f"\tmedian distance heatmap saved: {out_path}")
 
 
 if __name__ == "__main__":
@@ -543,7 +551,7 @@ if __name__ == "__main__":
 
     From a molecular dynamics trajectory file perform trajectory analysis. The script computes the Root Mean Square 
     Deviation (RMSD) and the hydrogen contacts between atoms of two different residues represented as a CSV file and 
-    heat-maps.
+    heatmaps.
     WARNING: the mask selection is only used to compute the RMSD plot not for loading the trajectory because if the 
     mask defined the backbone, no hydrogen bond will be find.
     See: https://amber-md.github.io/pytraj/latest/atom_mask_selection.html#examples-atom-mask-selection-for-trajectory
@@ -632,7 +640,7 @@ if __name__ == "__main__":
     # find the Hydrogen bonds
     pattern_contact = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
     data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.second_half_percent, pattern_contact,
-                                  args.out, basename)
+                                  args.out, basename, frames_limits)
 
     if args.individual_plots:
         # plot individual contacts
@@ -641,5 +649,5 @@ if __name__ == "__main__":
     # write the CSV for the contacts
     stats = contacts_csv(data_h_bonds, args.out, basename, pattern_contact)
 
-    # get the heat maps of validated contacts by residues for each column of the statistics dataframe
-    heat_map_contacts(stats, args.distance_contacts, basename, args.out, args.format, roi_limits)
+    # get the heatmaps of validated contacts by residues for each column of the statistics dataframe
+    heatmap_contacts(stats, args.distance_contacts, basename, args.out, args.format, roi_limits, frames_limits)
