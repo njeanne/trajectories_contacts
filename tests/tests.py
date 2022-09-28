@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 
-__author__ = 'Nicolas Jeanne'
-__copyright__ = 'Copyright (C) 2022 CHU-Toulouse'
-__license__ = 'GNU General Public License'
-__version__ = '1.0.0'
-__email__ = 'jeanne.n@chu-toulouse.fr'
+__author__ = "Nicolas Jeanne"
+__license__ = "GNU General Public License"
+__version__ = "1.0.0"
+__email__ = "jeanne.n@chu-toulouse.fr"
 
 import argparse
 import os
@@ -42,8 +41,6 @@ class TestTrajectories(unittest.TestCase):
         self.traj = load_trajectory(os.path.join(TEST_FILES_DIR, "JQ679014_hinge_WT_ranked_0_20-frames.nc"),
                                     os.path.join(TEST_FILES_DIR, "JQ679014_hinge_WT_ranked_0.parm"),
                                     self.tmp_dir, ":25-45")
-        # self.traj_no_mask = load_trajectory(os.path.join(TEST_FILES_DIR, "JQ679014_hinge_WT_ranked_0_20-frames.nc"),
-        #                                     os.path.join(TEST_FILES_DIR, "JQ679014_hinge_WT_ranked_0.parm"))
         self.rmsd = format_csv(os.path.join(TEST_FILES_DIR,
                                             "RMSD_JQ679014_hinge_WT_ranked_0_20-frames_mask-25-45.csv"))
         self.h_bonds = format_csv(os.path.join(TEST_FILES_DIR,
@@ -58,6 +55,8 @@ class TestTrajectories(unittest.TestCase):
     def test_limits(self):
         self.assertEqual(check_limits(":25-45", "7-15"), self.limits)
         self.assertNotEqual(check_limits(":12-32", "7-15"), self.limits)
+        self.assertRaises(argparse.ArgumentTypeError, check_limits, ":25to45", "7-15")
+        self.assertRaises(argparse.ArgumentTypeError, check_limits, ":25-45", "7to15")
         self.assertRaises(argparse.ArgumentTypeError, check_limits, ":25-45", "7-55")
         self.assertRaises(argparse.ArgumentTypeError, check_limits, ":25-45", "20-35")
 
