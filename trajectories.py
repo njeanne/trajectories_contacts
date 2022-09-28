@@ -107,7 +107,7 @@ def check_limits(frames, roi):
     return frames_lim, roi_lim
 
 
-def load_trajectory(trajectory_file, topology_file, out_dir, frames=None):
+def load_trajectory(trajectory_file, topology_file, out_dir, save=False, frames=None):
     """
     Load a trajectory and apply a mask if mask argument is set.
 
@@ -119,6 +119,8 @@ def load_trajectory(trajectory_file, topology_file, out_dir, frames=None):
     :type out_dir: str
     :param frames: the frames to use.
     :type frames: str
+    :param save: save the trajectory file with the selected frames, only if frames is not None.
+    :type save: bool
     :return: the loaded trajectory.
     :rtype: pt.Trajectory
     """
@@ -132,7 +134,7 @@ def load_trajectory(trajectory_file, topology_file, out_dir, frames=None):
     logging.info("\tComputing trajectory, please be patient..")
     traj = pt.load(trajectory_file, top=topology_file, frame_indices=frame_indices)
 
-    if frames:
+    if frames and save:
         path_traj_out = os.path.join(out_dir, f"{os.path.splitext(os.path.basename(trajectory_file))[0]}_"
                                               f"frames-{frame_indices[0]}-{frame_indices[-1] + 1}.nc")
         pt.save(path_traj_out, traj, overwrite=True)
@@ -563,6 +565,8 @@ if __name__ == "__main__":
     parser.add_argument("-x", "--frames", required=False, type=str,
                         help="the frames to load from the trajectory, the format must be two integers separated by "
                              "an hyphen, i.e to load the trajectory from the frame 500 to 2000: --frames 500-2000")
+    parser.add_argument("-y", "--save", required=False, action="store_true",
+                        help="if a frame selection is done, specify if the new trajectory file should be saved.")
     parser.add_argument("-m", "--mask", required=False, type=str,
                         help="Only used for the RMSD computation, the residues mask selection format is defined in "
                              "amber documentation.")
