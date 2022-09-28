@@ -73,52 +73,41 @@ def create_log(path, level):
     return logging
 
 
-def check_limits(mask, roi):
+def check_limits(frames, roi):
     """Check if the formats of the mask and the region of interest (roi) are valid and if the roi is between the
     limits of the mask selection.
 
-    :param mask: the mask
-    :type mask: str
+    :param frames: the limits of the frames to use.
+    :type frames: str
     :param roi: the region of interest limits
     :type roi: str
-    :raises ArgumentTypeError: is not between 0.0 and 100.0
-    :return: the mask and region of interest limits
-    :rtype: dict
+    :raises ArgumentTypeError: values not in the fixed limits
+    :return: the frames and region of interest limits
+    :rtype: dict, dict
     """
-    limits = {"mask": {}, "roi": {}}
-    if mask:
-        pattern_mask = re.compile(":(\\d+)-(\\d+)")
-        match_mask = pattern_mask.search(mask)
-        if match_mask:
-            limits["mask"]["min"] = int(match_mask.group(1))
-            limits["mask"]["max"] = int(match_mask.group(2))
+    frames_lim = {}
+    roi_lim = {}
+    pattern = re.compile("(\\d+)-(\\d+)")
+    if frames:
+        match = pattern.search(frames)
+        if match:
+            frames_lim["min"] = int(match.group(1))
+            frames_lim["max"] = int(match.group(2))
         else:
-            raise argparse.ArgumentTypeError(f"--mask {mask} is not a valid format, valid format should be: "
-                                             f"--mask :<DIGITS>-<DIGITS>")
+            raise argparse.ArgumentTypeError(f"--frames {frames} is not a valid format, valid format should be: "
+                                             f"--frames <DIGITS>-<DIGITS>")
     if roi:
-        pattern_roi = re.compile("(\\d+)-(\\d+)")
-        match_roi = pattern_roi.search(roi)
-        if match_roi:
-            limits["roi"]["min"] = int(match_roi.group(1))
-            limits["roi"]["max"] = int(match_roi.group(2))
+        match = pattern.search(roi)
+        if match:
+            roi_lim["min"] = int(match.group(1))
+            roi_lim["max"] = int(match.group(2))
         else:
             raise argparse.ArgumentTypeError(f"--roi-hm {roi} is not a valid format, valid format should be: "
                                              f"--roi-hm <DIGITS>-<DIGITS>")
-    if mask and roi:
-        if limits["mask"]["min"] + limits["roi"]["min"] >= limits["mask"]["max"]:
-            raise argparse.ArgumentTypeError(f"Heat maps Region Of Interest minimum limit {limits['roi']['min']} ("
-                                             f"{limits['mask']['min']}+{limits['roi']['min']}="
-                                             f"{limits['mask']['min'] + limits['roi']['min']}) is outside the mask "
-                                             f"limits:\t{mask}")
-        elif limits["mask"]["min"] + limits["roi"]["max"] >= limits["mask"]["max"]:
-            raise argparse.ArgumentTypeError(f"Heat maps Region Of Interest maximum limit {limits['roi']['max']} ("
-                                             f"{limits['mask']['min']}+{limits['roi']['max']}="
-                                             f"{limits['mask']['min'] + limits['roi']['max']}) is outside the mask "
-                                             f"limits:\t{mask}")
-    return limits
+    return frames_lim, roi_lim
 
 
-def load_trajectory(trajectory_file, topology_file, out_dir, mask=None):
+def load_trajectory(trajectory_file, topology_file, out_dir, frames=None, mask=None):
     """
     Load a trajectory and apply a mask if mask argument is set.
 
@@ -128,21 +117,34 @@ def load_trajectory(trajectory_file, topology_file, out_dir, mask=None):
     :type topology_file: str
     :param out_dir: the output directory.
     :type out_dir: str
-    :param mask: the mask.
+    :param frames: the frames to use.
+    :type frames: str
+    :param mask: the mask to apply.
     :type mask: str
     :return: the loaded trajectory.
     :rtype: pt.Trajectory
     """
     logging.info("Loading trajectory file:")
-    traj = pt.load(trajectory_file, topology_file)
+    frame_indices = None
+    if frames:
+        frames_split = frames.split("-")
+        frame_indices = range(int(frames_split[0]), int(frames_split[1]))
+        logging.info(f"\tUsing frames:\t{frame_indices[0]} to {frame_indices[-1] + 1}")
     if mask:
-        traj = pt.load(trajectory_file, topology_file)
-        logging.info(f"\tApplying mask:\t{mask}\tPlease be patient..")
-        traj = traj[f"{mask}"]
-        path_traj_mask = os.path.join(out_dir, f"{os.path.splitext(os.path.basename(trajectory_file))[0]}_mask-"
-                                               f"{mask}.nc")
-        pt.save(path_traj_mask, traj, overwrite=True)
-        logging.info(f"\tTrajectory file with mask saved: {path_traj_mask}")
+        logging.info(f"\tApplying mask:\t{mask}")
+
+    logging.info("\tComputing trajectory, please be patient..")
+    traj = pt.load(trajectory_file, top=topology_file, frame_indices=frame_indices, mask=mask)
+
+    if mask or frames:
+        path_traj_out = os.path.join(out_dir, os.path.splitext(os.path.basename(trajectory_file))[0])
+        if mask:
+            path_traj_out = f"{path_traj_out}_mask-{mask}"
+        if frames:
+            path_traj_out = f"{path_traj_out}_frames-{frame_indices[0]}-{frame_indices[-1] + 1}"
+        path_traj_out = f"{path_traj_out}.nc"
+        pt.save(path_traj_out, traj, overwrite=True)
+        logging.info(f"\tTrajectory file with mask saved: {path_traj_out}")
     logging.info(f"\tFrames:\t\t{traj.n_frames}")
     logging.info(f"\tMolecules:\t{traj.topology.n_mols}")
     logging.info(f"\tResidues:\t{traj.topology.n_residues}")
@@ -151,7 +153,7 @@ def load_trajectory(trajectory_file, topology_file, out_dir, mask=None):
     return traj
 
 
-def rmsd(traj, out_dir, out_basename, limits, format_output):
+def rmsd(traj, out_dir, out_basename, format_output, frames_lim=None, mask=None):
     """
     Compute the Root Mean Square Deviation and create the plot.
 
@@ -161,15 +163,21 @@ def rmsd(traj, out_dir, out_basename, limits, format_output):
     :type out_dir: str
     :param out_basename: the plot and CSV basename.
     :type out_basename: str
-    :param limits: the mask and heat map region of interest limits.
-    :type limits: dict
     :param format_output: the output format for the plots.
     :type format_output: str
+    :param frames_lim: the frames limits.
+    :type frames_lim: dict
+    :param mask: the applied mask.
+    :type mask: str
     """
     logging.info("RMSD computation:")
     path_basename = os.path.join(out_dir, f"RMSD_{out_basename}")
     rmsd_traj = pt.rmsd(traj, ref=0)
-    source = pd.DataFrame({"frames": range(traj.n_frames), "RMSD": rmsd_traj})
+    if frames_lim:
+        range_frames = [x + frames_lim["min"] for x in range(traj.n_frames)]
+    else:
+        range_frames = [x + 1 for x in range(traj.n_frames)]
+    source = pd.DataFrame({"frames": range_frames, "RMSD": rmsd_traj})
     path_csv = f"{path_basename}.csv"
     source.to_csv(path_csv, index=False)
     logging.info(f"\tdata saved: {path_csv}")
@@ -177,8 +185,12 @@ def rmsd(traj, out_dir, out_basename, limits, format_output):
     plot = rmsd_ax.get_figure()
     title = f"Root Mean Square Deviation: {out_basename}"
     plt.suptitle(title, fontsize="large", fontweight="bold")
-    if limits["mask"]:
-        plt.title(f"Applied mask: {limits['mask']['min']}-{limits['mask']['max']}")
+    if mask and frames_lim:
+        plt.title(f"Applied mask: {mask}   Frames used: {frames_lim['min']}-{frames_lim['max']}")
+    elif mask:
+        plt.title(f"Applied mask: {mask}")
+    elif frames_lim:
+        plt.title(f"Frames used: {frames_lim['min']}-{frames_lim['max']}")
     plt.xlabel("Frame", fontweight="bold")
     plt.ylabel("RMSD (\u212B)", fontweight="bold")
     path_plot = f"{path_basename}.{format_output}"
@@ -576,12 +588,15 @@ if __name__ == "__main__":
     From a molecular dynamics trajectory file and eventually a mask selection
     (https://amber-md.github.io/pytraj/latest/atom_mask_selection.html#examples-atom-mask-selection-for-trajectory),
     perform trajectory analysis. The script computes the Root Mean Square Deviation (RMSD) and the hydrogen contacts
-    between atoms of two different residues represented as a CSV file and heat maps.
+    between atoms of two different residues represented as a CSV file and heat-maps.
     """
     parser = argparse.ArgumentParser(description=descr, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-o", "--out", required=True, type=str, help="the path to the output directory.")
     parser.add_argument("-t", "--topology", required=True, type=str,
                         help="the path to the molecular dynamics topology file.")
+    parser.add_argument("-x", "--frames", required=False, type=str,
+                        help="the frames to load from the trajectory, the format must be two integers separated by "
+                             "an hyphen, i.e to load the trajectory from the frame 500 to 2000: --frames 500-2000")
     parser.add_argument("-m", "--mask", required=False, type=str,
                         help="the residues mask selection, the format should be a colon and two integers separated by "
                              "an hyphen, i.e: --mask :682-850")
@@ -603,9 +618,6 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--second-half-percent", required=False, type=restricted_float, default=20.0,
                         help="the minimal percentage of frames which make contact between 2 atoms of different "
                              "residues in the second half of the molecular dynamics simulation, default is 20%%.")
-    parser.add_argument("-r", "--reload", required=False, action="store_true",
-                        help="reload an existing trajectory with a mask already applied to save computation time. The "
-                             "trajectory file will be searched in the output directory.")
     parser.add_argument("-i", "--individual-plots", required=False, action="store_true",
                         help="plot the individual contacts.")
     parser.add_argument("-l", "--log", required=False, type=str,
@@ -634,7 +646,7 @@ if __name__ == "__main__":
     logging.info(f"minimal proportion of frames with atoms contacts between two different residues in the second "
                  f"half of the molecular dynamics: {args.second_half_percent:.1f}%")
     try:
-        limits_mask_roi = check_limits(args.mask, args.roi_hm)
+        frames_limits, roi_limits = check_limits(args.frames, args.roi_hm)
     except argparse.ArgumentTypeError as exc:
         logging.error(exc)
         sys.exit(1)
@@ -645,10 +657,7 @@ if __name__ == "__main__":
 
     # load the trajectory
     try:
-        if args.reload:
-            trajectory = load_trajectory(args.input, args.topology, args.reload, args.out, args.mask)
-        else:
-            trajectory = load_trajectory(args.input, args.topology, args.mask)
+        trajectory = load_trajectory(args.input, args.topology, args.out, args.frames, args.mask)
     except RuntimeError as exc:
         logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists",
                       exc_info=True)
