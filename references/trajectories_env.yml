@@ -79,7 +79,6 @@ dependencies:
   - mpeg_encode=1=h14c3975_1
   - mtz2ccp4_px=1.0=h9ac9557_3
   - ncurses=6.3=h9c3ff4c_0
-  - nodejs=6.13.1=0
   - numpy=1.21.5=py37hf2998dd_0
   - openjpeg=2.4.0=hb52868f_1
   - openssl=1.1.1o=h7f8727e_0
