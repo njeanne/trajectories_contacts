@@ -16,6 +16,8 @@ import re
 import statistics
 import sys
 
+import matplotlib
+matplotlib.use('Agg')
 import pandas as pd
 import pytraj as pt
 import matplotlib.pyplot as plt
