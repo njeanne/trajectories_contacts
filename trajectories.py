@@ -233,7 +233,7 @@ def sort_contacts(contact_names, pattern):
     return ordered
 
 
-def hydrogen_bonds(traj, dist_thr, contacts_frame_thr_2nd_half, pattern_hb, out_dir, out_basename, lim_frames=None):
+def hydrogen_bonds(traj, dist_thr, thr_2nd_half_frames, pattern_hb, out_dir, out_basename, lim_frames=None):
     """
     Get the polar bonds (hydrogen) between the different atoms of the protein during the molecular dynamics simulation.
 
@@ -241,9 +241,9 @@ def hydrogen_bonds(traj, dist_thr, contacts_frame_thr_2nd_half, pattern_hb, out_
     :type traj: pt.Trajectory
     :param dist_thr: the threshold distance in Angstroms for contacts.
     :type dist_thr: float
-    :param contacts_frame_thr_2nd_half: the minimal percentage of contacts for atoms contacts of different residues in
-    the second half of the simulation.
-    :type contacts_frame_thr_2nd_half: float
+    :param thr_2nd_half_frames: the minimal percentage of contacts for atoms contacts of different residues in the
+    second half of the simulation.
+    :type thr_2nd_half_frames: float
     :param pattern_hb: the pattern for the hydrogen bond name.
     :type pattern_hb: re.pattern
     :param out_dir: the output directory.
@@ -277,19 +277,19 @@ def hydrogen_bonds(traj, dist_thr, contacts_frame_thr_2nd_half, pattern_hb, out_
                     second_half = dist[idx][int(len(dist[idx])/2):]
                     # retrieve only the contacts >= percentage threshold of frames in the second half of the simulation
                     pct_contacts = len(second_half[second_half <= dist_thr]) / len(second_half) * 100
-                    if pct_contacts >= contacts_frame_thr_2nd_half:
+                    if pct_contacts >= thr_2nd_half_frames:
                         data_hydrogen_bonds[h_bond.key] = dist[idx]
                     else:
                         nb_frames_contacts_2nd_half_thr += 1
                         logging.debug(f"\t {h_bond.key}: {pct_contacts:.1f}% of the frames with contacts under the "
-                                      f"threshold of {contacts_frame_thr_2nd_half:.1f}% for the second half of the "
+                                      f"threshold of {thr_2nd_half_frames:.1f}% for the second half of the "
                                       f"simulation, contact skipped")
             idx += 1
 
     nb_used_contacts = nb_total_contacts - nb_intra_residue_contacts - nb_frames_contacts_2nd_half_thr
     logging.info(f"\t{nb_intra_residue_contacts}/{nb_total_contacts} intra residues atoms contacts discarded.")
     logging.info(f"\t{nb_frames_contacts_2nd_half_thr}/{nb_total_contacts} inter residues atoms contacts discarded "
-                 f"with number of contacts frames under the threshold of {contacts_frame_thr_2nd_half:.1f}% for the "
+                 f"with number of contacts frames under the threshold of {thr_2nd_half_frames:.1f}% for the "
                  f"second half of the simulation.")
     if nb_used_contacts == 0:
         logging.error(f"\t{nb_used_contacts} inter residues atoms contacts remaining, analysis stopped. Check the "
@@ -308,7 +308,7 @@ def hydrogen_bonds(traj, dist_thr, contacts_frame_thr_2nd_half, pattern_hb, out_
     return df
 
 
-def plot_individual_contacts(df, out_dir, out_basename, dist_thr, format_output):
+def plot_individual_contacts(df, out_dir, out_basename, dist_thr, format_output, frames_lim=None):
     """
     Plot individual inter residues polar contacts.
 
@@ -322,6 +322,8 @@ def plot_individual_contacts(df, out_dir, out_basename, dist_thr, format_output)
     :type dist_thr: float
     :param format_output: the output format for the plots.
     :type format_output: str
+    :param frames_lim: the frames limits.
+    :type frames_lim: dict
     """
     contacts_plots_dir = os.path.join(out_dir, "individual_contacts")
     os.makedirs(contacts_plots_dir, exist_ok=True)
@@ -339,6 +341,12 @@ def plot_individual_contacts(df, out_dir, out_basename, dist_thr, format_output)
         plt.ylabel("distance (\u212B)", fontweight="bold")
         # add the threshold horizontal line
         scattered_plot.axhline(dist_thr, color="red")
+        # add the 2nd part of MD vertical line
+        if frames_lim:
+            thr_2nd_half = frames_lim["min"] + int((frames_lim["max"] - frames_lim["min"]) / 2)
+        else:
+            thr_2nd_half = int(len(df["frames"]) / 2)
+        scattered_plot.axvline(thr_2nd_half, color="red")
         out_path = os.path.join(contacts_plots_dir, f"{out_basename}_{contact_id}.{format_output}")
         plot.savefig(out_path)
         nb_plots += 1
@@ -650,7 +658,7 @@ if __name__ == "__main__":
 
     if args.individual_plots:
         # plot individual contacts
-        plot_individual_contacts(data_h_bonds, args.out, basename, args.distance_contacts, args.format)
+        plot_individual_contacts(data_h_bonds, args.out, basename, args.distance_contacts, args.format, frames_limits)
 
     # write the CSV for the contacts
     stats = contacts_csv(data_h_bonds, args.out, basename, pattern_contact)
