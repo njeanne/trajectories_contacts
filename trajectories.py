@@ -109,7 +109,7 @@ def check_limits(frames, roi):
     return frames_lim, roi_lim
 
 
-def load_trajectory(trajectory_file, topology_file, out_dir, save=False, frames=None):
+def load_trajectory(trajectory_file, topology_file, out_dir, frames=None, save=False):
     """
     Load a trajectory and apply a mask if mask argument is set.
 
@@ -567,7 +567,7 @@ if __name__ == "__main__":
     parser.add_argument("-x", "--frames", required=False, type=str,
                         help="the frames to load from the trajectory, the format must be two integers separated by "
                              "an hyphen, i.e to load the trajectory from the frame 500 to 2000: --frames 500-2000")
-    parser.add_argument("-y", "--save", required=False, action="store_true",
+    parser.add_argument("--save", required=False, action="store_true",
                         help="if a frame selection is done, specify if the new trajectory file should be saved.")
     parser.add_argument("-m", "--mask", required=False, type=str,
                         help="Only used for the RMSD computation, the residues mask selection format is defined in "
@@ -629,7 +629,7 @@ if __name__ == "__main__":
 
     # load the trajectory
     try:
-        trajectory = load_trajectory(args.input, args.topology, args.out, args.frames)
+        trajectory = load_trajectory(args.input, args.topology, args.out, args.frames, args.save)
     except RuntimeError as exc:
         logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists",
                       exc_info=True)
