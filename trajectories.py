@@ -7,7 +7,7 @@ Created on 17 Mar. 2022
 __author__ = "Nicolas JEANNE"
 __copyright__ = "GNU General Public License"
 __email__ = "jeanne.n@chu-toulouse.fr"
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 import argparse
 import logging
@@ -376,8 +376,10 @@ def contacts_csv(df, out_dir, out_basename, pattern):
             "donor residue": [],
             "acceptor position": [],
             "acceptor residue": [],
-            "median distance": []}
+            "median distance whole MD": [],
+            "median distance 2nd half MD": []}
 
+    df_second_half = df.iloc[int(len(df.index) / 2):]
     for contact_id in df.columns[1:]:
         match = pattern.search(contact_id)
         if match:
@@ -392,7 +394,8 @@ def contacts_csv(df, out_dir, out_basename, pattern):
             data["donor residue"].append(f"no match with {pattern.pattern}")
             data["acceptor position"].append(f"no match with {pattern.pattern}")
             data["acceptor_residue"].append(f"no match with {pattern.pattern}")
-        data["median distance"].append(round(statistics.median(df.loc[:, contact_id]), 2))
+        data["median distance whole MD"].append(round(statistics.median(df.loc[:, contact_id]), 2))
+        data["median distance 2nd half MD"].append(round(statistics.median(df_second_half.loc[:, contact_id]), 2))
     contacts_stat = pd.DataFrame(data)
     out_path = os.path.join(out_dir, f"contacts_{out_basename}.csv")
     contacts_stat.to_csv(out_path, index=False)
@@ -401,7 +404,7 @@ def contacts_csv(df, out_dir, out_basename, pattern):
     return contacts_stat
 
 
-def reduce_contacts_dataframe(raw_df, thr, roi_lim):
+def reduce_contacts_dataframe(raw_df, dist_col, thr, roi_lim):
     """
     The dataframe are filtered on the values under the distance threshold, then when multiple rows of the same
     combination of donor and acceptor residues keep the one with the minimal contact distance (between the atoms of
@@ -409,6 +412,8 @@ def reduce_contacts_dataframe(raw_df, thr, roi_lim):
 
     :param raw_df: the contact residues dataframe.
     :type raw_df: pd.Dataframe
+    :param dist_col: the name of the distances column.
+    :type dist_col: str
     :param thr: the distance threshold.
     :type thr: float
     :param roi_lim: the region of interest limits for the heatmap.
@@ -421,7 +426,7 @@ def reduce_contacts_dataframe(raw_df, thr, roi_lim):
     raw_df["donor position"] = pd.to_numeric(raw_df["donor position"])
     raw_df["acceptor position"] = pd.to_numeric(raw_df["acceptor position"])
     # get only the rows with a contact distance less or equal to the threshold
-    df = raw_df[raw_df["median distance"].between(0.0, thr)]
+    df = raw_df[raw_df[dist_col].between(0.0, thr)]
     # select rows of the dataframe if limits for the heatmap were set
     if roi_lim:
         df = df[df["donor position"].between(roi_lim["min"], roi_lim["max"])]
@@ -438,7 +443,7 @@ def reduce_contacts_dataframe(raw_df, thr, roi_lim):
             tmp_df = df[
                 (df["donor position"] == row["donor position"]) & (df["acceptor position"] == row["acceptor position"])]
             # get the index of the minimal distance
-            idx_min = tmp_df[["median distance"]].idxmin()
+            idx_min = tmp_df[[dist_col]].idxmin()
             # record the index to remove of the other rows of the same donor - acceptor positions
             tmp_index_to_remove = list(tmp_df.index.drop(idx_min))
             if tmp_index_to_remove:
@@ -449,12 +454,14 @@ def reduce_contacts_dataframe(raw_df, thr, roi_lim):
     return df
 
 
-def get_df_distances_nb_contacts(df):
+def get_df_distances_nb_contacts(df, dist_col):
     """
     Create a distances and a number of contacts dataframes for the couples donors and acceptors.
 
     :param df: the initial dataframe
     :type df: pd.Dataframe
+    :param dist_col: the name of the distances column.
+    :type dist_col: str
     :return: the dataframe of distances and the dataframe of the number of contacts.
     :rtype: pd.Dataframe, pd.Dataframe
     """
@@ -479,7 +486,7 @@ def get_df_distances_nb_contacts(df):
             if acceptor_position not in distances:
                 distances[acceptor_position] = []
             dist = df.loc[(df["donor position"] == donor_position) & (df["acceptor position"] == acceptor_position),
-                          "median distance"]
+                          dist_col]
             if not dist.empty:
                 distances[acceptor_position].append(dist.values[0])
             else:
@@ -500,12 +507,15 @@ def get_df_distances_nb_contacts(df):
     return source_distances, source_nb_contacts
 
 
-def heatmap_contacts(df_residues, threshold_contact, out_basename, out_dir, output_fmt, lim_roi, lim_frames):
+def heatmap_contacts(df_residues, distances_col, threshold_contact, out_basename, out_dir, output_fmt, lim_roi,
+                     lim_frames):
     """
     Create the heatmap of contacts between residues.
 
     :param df_residues: the statistics dataframe.
     :type df_residues: pd.DataFrame
+    :param distances_col: the column in the dataframe to get the distances.
+    :type distances_col: str
     :param threshold_contact: the maximal contact distance in Angstroms.
     :type threshold_contact: float
     :param out_basename: the basename.
@@ -520,10 +530,10 @@ def heatmap_contacts(df_residues, threshold_contact, out_basename, out_dir, outp
     :type lim_frames: dict
     """
     # keep only the minimal distance between 2 residues and add the number of contacts
-    df_residues = reduce_contacts_dataframe(df_residues, threshold_contact, lim_roi)
+    df_residues = reduce_contacts_dataframe(df_residues, distances_col, threshold_contact, lim_roi)
 
     # create the distances and number of contacts dataframes to produce the heatmap
-    source_distances, source_nb_contacts = get_df_distances_nb_contacts(df_residues)
+    source_distances, source_nb_contacts = get_df_distances_nb_contacts(df_residues, distances_col)
 
     # increase the size of the heatmap if too much entries
     factor = int(len(source_distances) / 40) if len(source_distances) / 40 >= 1 else 1
@@ -534,7 +544,7 @@ def heatmap_contacts(df_residues, threshold_contact, out_basename, out_dir, outp
                           linewidths=0.5, xticklabels=True, yticklabels=True)
     heatmap.figure.axes[-1].yaxis.label.set_size(15)
     plot = heatmap.get_figure()
-    title = f"Contact residues median distance: {out_basename}"
+    title = f"Contact residues {distances_col}: {out_basename}"
     plt.suptitle(title, fontsize="large", fontweight="bold")
     subtitle = "Number of residues atoms in contact are displayed in the squares."
     if lim_roi:
@@ -544,7 +554,7 @@ def heatmap_contacts(df_residues, threshold_contact, out_basename, out_dir, outp
     plt.title(subtitle)
     plt.xlabel("Acceptors", fontweight="bold")
     plt.ylabel("Donors", fontweight="bold")
-    out_path = os.path.join(out_dir, f"heatmap_median_distance_{out_basename}.{output_fmt}")
+    out_path = os.path.join(out_dir, f"heatmap_{distances_col.replace(' ', '-')}_{out_basename}.{output_fmt}")
     plot.savefig(out_path)
     # clear the plot for the next use of the function
     plt.clf()
@@ -664,4 +674,7 @@ if __name__ == "__main__":
     stats = contacts_csv(data_h_bonds, args.out, basename, pattern_contact)
 
     # get the heatmaps of validated contacts by residues for each column of the statistics dataframe
-    heatmap_contacts(stats, args.distance_contacts, basename, args.out, args.format, roi_limits, frames_limits)
+    for distances_column_id in stats.columns[5:]:
+        heatmap_contacts(stats, distances_column_id, args.distance_contacts, basename, args.out, args.format,
+                         roi_limits, frames_limits)
+    # heatmap_contacts(stats, args.distance_contacts, basename, args.out, args.format, roi_limits, frames_limits)
