@@ -76,15 +76,14 @@ def create_log(path, level):
 
 
 def check_limits(frames, roi):
-    """Check if the formats of the mask and the region of interest (roi) are valid and if the roi is between the
-    limits of the mask selection.
+    """Check if the selected frames and the region of interest (roi) are valid .
 
     :param frames: the limits of the frames to use.
     :type frames: str
-    :param roi: the region of interest limits
+    :param roi: the region of interest limits.
     :type roi: str
-    :raises ArgumentTypeError: values not in the fixed limits
-    :return: the frames and region of interest limits
+    :raises ArgumentTypeError: values not in the fixed limits.
+    :return: the frames and region of interest limits.
     :rtype: dict, dict
     """
     frames_lim = {}
