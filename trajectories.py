@@ -677,4 +677,3 @@ if __name__ == "__main__":
     for distances_column_id in stats.columns[5:]:
         heatmap_contacts(stats, distances_column_id, args.distance_contacts, basename, args.out, args.format,
                          roi_limits, frames_limits)
-    # heatmap_contacts(stats, args.distance_contacts, basename, args.out, args.format, roi_limits, frames_limits)
