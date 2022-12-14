@@ -7,7 +7,7 @@ Created on 17 Mar. 2022
 __author__ = "Nicolas JEANNE"
 __copyright__ = "GNU General Public License"
 __email__ = "jeanne.n@chu-toulouse.fr"
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 import argparse
 import logging
@@ -17,15 +17,12 @@ import statistics
 import sys
 
 import matplotlib
-matplotlib.use('Agg')
 import pandas as pd
 import pytraj as pt
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
 import seaborn as sns
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "references"))
-import polarPairs
+matplotlib.use('Agg')
 
 
 def restricted_float(float_to_inspect):
