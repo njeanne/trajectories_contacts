@@ -7,7 +7,7 @@ Created on 17 Mar. 2022
 __author__ = "Nicolas JEANNE"
 __copyright__ = "GNU General Public License"
 __email__ = "jeanne.n@chu-toulouse.fr"
-__version__ = "1.3.0"
+__version__ = "2.0.0"
 
 import argparse
 import logging
@@ -25,18 +25,48 @@ import seaborn as sns
 matplotlib.use('Agg')
 
 
-def restricted_float(float_to_inspect):
+def restricted_float(value_to_inspect):
     """Inspect if a float is between 0.0 and 100.0
 
-    :param float_to_inspect: the float to inspect
-    :type float_to_inspect: float
+    :param value_to_inspect: the value to inspect
+    :type value_to_inspect: str
     :raises ArgumentTypeError: is not between 0.0 and 100.0
     :return: the float value if float_to_inspect is between 0.0 and 100.0
     :rtype: float
     """
-    x = float(float_to_inspect)
+    x = float(value_to_inspect)
     if x < 0.0 or x > 100.0:
         raise argparse.ArgumentTypeError(f"{x} not in range [0.0, 100.0]")
+    return x
+
+
+def restricted_positive(value_to_inspect):
+    """Inspect if an angle value is between 0 and 359.
+
+    :param value_to_inspect: the value to inspect
+    :type value_to_inspect: str
+    :raises ArgumentTypeError: is not > 0.0
+    :return: the float value if float_to_inspect is between 0.0 and 100.0
+    :rtype: float
+    """
+    x = float(value_to_inspect)
+    if x < 0.0:
+        raise argparse.ArgumentTypeError(f"{x} not a positive value.")
+    return x
+
+
+def restricted_angle(value_to_inspect):
+    """Inspect if an angle value is between 0 and 359.
+
+    :param value_to_inspect: the value to inspect
+    :type value_to_inspect: str
+    :raises ArgumentTypeError: is not between 0.0 and 100.0
+    :return: the float value if float_to_inspect is between 0.0 and 100.0
+    :rtype: float
+    """
+    x = int(value_to_inspect)
+    if x < 0 or x > 359:
+        raise argparse.ArgumentTypeError(f"{x} not a valid angle, it should be between 0 and 359.")
     return x
 
 
@@ -105,7 +135,7 @@ def check_limits(frames, roi):
     return frames_lim, roi_lim
 
 
-def load_trajectory(trajectory_file, topology_file, out_dir, frames=None, save=False):
+def load_trajectory(trajectory_file, topology_file, ps_frame, frames=None):
     """
     Load a trajectory and apply a mask if mask argument is set.
 
@@ -113,31 +143,27 @@ def load_trajectory(trajectory_file, topology_file, out_dir, frames=None, save=F
     :type trajectory_file: str
     :param topology_file: the topology file path.
     :type topology_file: str
-    :param out_dir: the output directory.
-    :type out_dir: str
+    :param ps_frame: the time a frame represents in picoseconds.
+    :type ps_frame: float
     :param frames: the frames to use.
     :type frames: str
-    :param save: save the trajectory file with the selected frames, only if frames is not None.
-    :type save: bool
     :return: the loaded trajectory.
     :rtype: pt.Trajectory
     """
-    logging.info("Loading trajectory file:")
+    logging.info("Loading trajectory file, please be patient..")
     frame_indices = None
     if frames:
         frames_split = frames.split("-")
         frame_indices = range(int(frames_split[0]), int(frames_split[1]))
-        logging.info(f"\tUsing frames:\t{frame_indices[0]} to {frame_indices[-1] + 1}")
 
-    logging.info("\tComputing trajectory, please be patient..")
     traj = pt.load(trajectory_file, top=topology_file, frame_indices=frame_indices)
 
-    if frames and save:
-        path_traj_out = os.path.join(out_dir, f"{os.path.splitext(os.path.basename(trajectory_file))[0]}_"
-                                              f"frames-{frame_indices[0]}-{frame_indices[-1] + 1}.nc")
-        pt.save(path_traj_out, traj, overwrite=True)
-        logging.info(f"\tTrajectory file with frames selection saved: {path_traj_out}")
-    logging.info(f"\tFrames:\t\t{traj.n_frames}")
+    if frames:
+        logging.info(f"\tFrames used:\t{frame_indices[0]} to {frame_indices[-1] + 1}")
+    else:
+        logging.info(f"\tFrames used:\t1 to {traj.n_frames}")
+    logging.info(f"\tFrames total:\t{traj.n_frames}")
+    logging.info(f"\tMD duration:\t{traj.n_frames * ps_frame} nanoseconds")
     logging.info(f"\tMolecules:\t{traj.topology.n_mols}")
     logging.info(f"\tResidues:\t{traj.topology.n_residues}")
     logging.info(f"\tAtoms:\t\t{traj.topology.n_atoms}")
@@ -182,17 +208,21 @@ def sort_contacts(contact_names, pattern):
     return ordered
 
 
-def hydrogen_bonds(traj, dist_thr, thr_2nd_half_frames, pattern_hb, out_dir, out_basename, lim_frames=None):
+def hydrogen_bonds(traj, dist_thr, angle_cutoff, thr_2nd_half_md, pattern_hb, out_dir, out_basename, lim_frames=None):
     """
-    Get the polar bonds (hydrogen) between the different atoms of the protein during the molecular dynamics simulation.
+    Get the hydrogen bonds between the different atoms of the protein during the molecular dynamics simulation.
+    Hydrogen bond is defined as A-HD, where A is acceptor heavy atom, H is hydrogen, D is donor heavy atom. Hydrogen
+    bond is formed when A to D distance < distance cutoff and A-H-D angle > angle cutoff.
 
     :param traj: the trajectory.
     :type traj: pt.Trajectory
     :param dist_thr: the threshold distance in Angstroms for contacts.
     :type dist_thr: float
-    :param thr_2nd_half_frames: the minimal percentage of contacts for atoms contacts of different residues in the
+    :param angle_cutoff: the angle cutoff for the hydrogen bonds.
+    :type angle_cutoff: int
+    :param thr_2nd_half_md: the minimal percentage of contacts for atoms contacts of different residues in the
     second half of the simulation.
-    :type thr_2nd_half_frames: float
+    :type thr_2nd_half_md: float
     :param pattern_hb: the pattern for the hydrogen bond name.
     :type pattern_hb: re.pattern
     :param out_dir: the output directory.
@@ -205,7 +235,7 @@ def hydrogen_bonds(traj, dist_thr, thr_2nd_half_frames, pattern_hb, out_dir, out
     :rtype: pd.DataFrame
     """
     logging.info("Hydrogen bonds retrieval from the trajectory file, please be patient..")
-    h_bonds = pt.hbond(traj, distance=dist_thr)
+    h_bonds = pt.hbond(traj, distance=dist_thr, angle=angle_cutoff)
     nb_total_contacts = len(h_bonds.data) - 1
     dist = pt.distance(traj, h_bonds.get_amber_mask()[0])
     logging.info(f"Search for inter-residues polar contacts in {nb_total_contacts} total polar contacts:")
@@ -226,19 +256,19 @@ def hydrogen_bonds(traj, dist_thr, thr_2nd_half_frames, pattern_hb, out_dir, out
                     second_half = dist[idx][int(len(dist[idx])/2):]
                     # retrieve only the contacts >= percentage threshold of frames in the second half of the simulation
                     pct_contacts = len(second_half[second_half <= dist_thr]) / len(second_half) * 100
-                    if pct_contacts >= thr_2nd_half_frames:
+                    if pct_contacts >= thr_2nd_half_md:
                         data_hydrogen_bonds[h_bond.key] = dist[idx]
                     else:
                         nb_frames_contacts_2nd_half_thr += 1
                         logging.debug(f"\t {h_bond.key}: {pct_contacts:.1f}% of the frames with contacts under the "
-                                      f"threshold of {thr_2nd_half_frames:.1f}% for the second half of the "
+                                      f"threshold of {thr_2nd_half_md:.1f}% for the second half of the "
                                       f"simulation, contact skipped")
             idx += 1
 
     nb_used_contacts = nb_total_contacts - nb_intra_residue_contacts - nb_frames_contacts_2nd_half_thr
     logging.info(f"\t{nb_intra_residue_contacts}/{nb_total_contacts} intra residues atoms contacts discarded.")
     logging.info(f"\t{nb_frames_contacts_2nd_half_thr}/{nb_total_contacts} inter residues atoms contacts discarded "
-                 f"with number of contacts frames under the threshold of {thr_2nd_half_frames:.1f}% for the "
+                 f"with number of contacts frames under the threshold of {thr_2nd_half_md:.1f}% for the "
                  f"second half of the simulation.")
     if nb_used_contacts == 0:
         logging.error(f"\t{nb_used_contacts} inter residues atoms contacts remaining, analysis stopped. Check the "
@@ -456,8 +486,7 @@ def get_df_distances_nb_contacts(df, dist_col):
     return source_distances, source_nb_contacts
 
 
-def heatmap_contacts(df_residues, distances_col, threshold_contact, out_basename, out_dir, output_fmt, lim_roi,
-                     lim_frames):
+def heatmap_contacts(df_residues, distances_col, threshold_contact, bn, out_dir, output_fmt, lim_roi, lim_frames):
     """
     Create the heatmap of contacts between residues.
 
@@ -467,8 +496,8 @@ def heatmap_contacts(df_residues, distances_col, threshold_contact, out_basename
     :type distances_col: str
     :param threshold_contact: the maximal contact distance in Angstroms.
     :type threshold_contact: float
-    :param out_basename: the basename.
-    :type out_basename: str
+    :param bn: the basename.
+    :type bn: str
     :param out_dir: the output directory.
     :type out_dir: str
     :param output_fmt: the output format for the heatmap.
@@ -493,17 +522,17 @@ def heatmap_contacts(df_residues, distances_col, threshold_contact, out_basename
                           linewidths=0.5, xticklabels=True, yticklabels=True)
     heatmap.figure.axes[-1].yaxis.label.set_size(15)
     plot = heatmap.get_figure()
-    title = f"Contact residues {distances_col}: {out_basename}"
+    title = f"Contact residues {distances_col}: {bn}"
     plt.suptitle(title, fontsize="large", fontweight="bold")
     subtitle = "Number of residues atoms in contact are displayed in the squares."
     if lim_roi:
         subtitle = f"{subtitle}\nHeatmap focus on donor residues {lim_roi['min']} to {lim_roi['max']}"
     if lim_frames:
-        subtitle = f"{subtitle}\nMolecular dynamics frames used: {lim_frames['min']} to {lim_frames['max']}"
+        subtitle = f"{subtitle}\nMolecular Dynamics frames used: {lim_frames['min']} to {lim_frames['max']}"
     plt.title(subtitle)
     plt.xlabel("Acceptors", fontweight="bold")
     plt.ylabel("Donors", fontweight="bold")
-    out_path = os.path.join(out_dir, f"heatmap_{distances_col.replace(' ', '-')}_{out_basename}.{output_fmt}")
+    out_path = os.path.join(out_dir, f"heatmap_{distances_col.replace(' ', '-')}_{bn}.{output_fmt}")
     plot.savefig(out_path)
     # clear the plot for the next use of the function
     plt.clf()
@@ -520,25 +549,29 @@ if __name__ == "__main__":
 
     Distributed on an "AS IS" basis without warranties or conditions of any kind, either express or implied.
 
-    From a molecular dynamics trajectory file perform trajectory analysis. The script computes the Root Mean Square 
-    Deviation (RMSD) and the hydrogen contacts between atoms of two different residues represented as a CSV file and 
-    heatmaps.
-    WARNING: the mask selection is only used to compute the RMSD plot not for loading the trajectory because if the 
-    mask defined the backbone, no hydrogen bond will be find.
-    See: https://amber-md.github.io/pytraj/latest/atom_mask_selection.html#examples-atom-mask-selection-for-trajectory
+    From a molecular dynamics trajectory file perform trajectory analysis. The script looks for the hydrogen bonds
+    between atoms of two different residues. An hydrogen bond is defined as A-HD, where A is acceptor heavy atom, H is
+    hydrogen, D is donor heavy atom. An hydrogen bond is formed when A to D distance < distance cutoff and A-H-D angle
+    > angle cutoff.
+    The hydrogen bonds are represented as a CSV file and heatmaps.
     """
     parser = argparse.ArgumentParser(description=descr, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-o", "--out", required=True, type=str, help="the path to the output directory.")
     parser.add_argument("-t", "--topology", required=True, type=str,
                         help="the path to the molecular dynamics topology file.")
+    parser.add_argument("-p", "--ps-by-frame", required=True, type=float,
+                        help="the elapsed time in picoseconds for each frame as set in the MD configuration file.")
+    parser.add_argument("-d", "--distance-contacts", required=False, type=restricted_positive, default=3.0,
+                        help="An hydrogen bond is defined as A-HD, where A is acceptor heavy atom, H is hydrogen, D is "
+                             "donor heavy atom. An hydrogen bond is formed when A to D distance < distance. "
+                             "Default is 3.0 Angstroms.")
+    parser.add_argument("-a", "--angle-cutoff", required=False, type=restricted_angle, default=135,
+                        help="Hydrogen bond is defined as A-HD, where A is acceptor heavy atom, H is hydrogen, D is "
+                             "donor heavy atom. One condition to form an hydrogen bond is A-H-D angle > angle cutoff. "
+                             "Default is 135 degrees.")
     parser.add_argument("-x", "--frames", required=False, type=str,
                         help="the frames to load from the trajectory, the format must be two integers separated by "
                              "an hyphen, i.e to load the trajectory from the frame 500 to 2000: --frames 500-2000")
-    parser.add_argument("--save", required=False, action="store_true",
-                        help="if a frame selection is done, specify if the new trajectory file should be saved.")
-    parser.add_argument("-m", "--mask", required=False, type=str,
-                        help="Only used for the RMSD computation, the residues mask selection format is defined in "
-                             "amber documentation.")
     parser.add_argument("-r", "--roi-hm", required=False, type=str,
                         help="the boundaries of the region to display in the heatmap within the mask selection if any. "
                              "In example if the mask '682-850' is applied and the region of interest for the "
@@ -552,8 +585,6 @@ if __name__ == "__main__":
                              "'rgba': 'Raw RGBA bitmap', 'svg': 'Scalable Vector Graphics', "
                              "'svgz': 'Scalable Vector Graphics', 'tif': 'Tagged Image File Format', "
                              "'tiff': 'Tagged Image File Format'. Default is 'svg'.")
-    parser.add_argument("-d", "--distance-contacts", required=False, type=float, default=3.0,
-                        help="the contacts distances threshold, default is 3.0 Angstroms.")
     parser.add_argument("-s", "--second-half-percent", required=False, type=restricted_float, default=20.0,
                         help="the minimal percentage of frames which make contact between 2 atoms of different "
                              "residues in the second half of the molecular dynamics simulation, default is 20%%.")
@@ -596,7 +627,7 @@ if __name__ == "__main__":
 
     # load the trajectory
     try:
-        trajectory = load_trajectory(args.input, args.topology, args.out, args.frames, args.save)
+        trajectory = load_trajectory(args.input, args.topology, args.ps_by_frame, args.frames)
     except RuntimeError as exc:
         logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists",
                       exc_info=True)
@@ -609,8 +640,8 @@ if __name__ == "__main__":
     # find the Hydrogen bonds
     basename = os.path.splitext(os.path.basename(args.input))[0]
     pattern_contact = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
-    data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.second_half_percent, pattern_contact,
-                                  args.out, basename, frames_limits)
+    data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.angle_cutoff, args.second_half_percent,
+                                  pattern_contact, args.out, basename, frames_limits)
 
     if args.individual_plots:
         # plot individual contacts
