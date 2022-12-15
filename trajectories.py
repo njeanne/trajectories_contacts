@@ -144,53 +144,6 @@ def load_trajectory(trajectory_file, topology_file, out_dir, frames=None, save=F
     return traj
 
 
-def rmsd(traj, out_dir, out_basename, format_output, frames_lim=None, mask=None):
-    """
-    Compute the Root Mean Square Deviation and create the plot.
-
-    :param traj: the trajectory.
-    :type traj: pt.Trajectory
-    :param out_dir: the output directory path
-    :type out_dir: str
-    :param out_basename: the plot and CSV basename.
-    :type out_basename: str
-    :param format_output: the output format for the plots.
-    :type format_output: str
-    :param frames_lim: the frames limits.
-    :type frames_lim: dict
-    :param mask: the applied mask.
-    :type mask: str
-    """
-    logging.info("RMSD computation:")
-    path_basename = os.path.join(out_dir, f"RMSD_{out_basename}")
-    rmsd_traj = pt.rmsd(traj, mask=mask, ref=0)
-    if frames_lim:
-        range_frames = [x + frames_lim["min"] for x in range(traj.n_frames)]
-    else:
-        range_frames = [x + 1 for x in range(traj.n_frames)]
-    source = pd.DataFrame({"frames": range_frames, "RMSD": rmsd_traj})
-    path_csv = f"{path_basename}.csv"
-    source.to_csv(path_csv, index=False)
-    logging.info(f"\tdata saved: {path_csv}")
-    rmsd_ax = sns.lineplot(data=source, x="frames", y="RMSD")
-    plot = rmsd_ax.get_figure()
-    title = f"Root Mean Square Deviation: {out_basename}"
-    plt.suptitle(title, fontsize="large", fontweight="bold")
-    if mask and frames_lim:
-        plt.title(f"Applied mask: {mask}   Frames used: {frames_lim['min']}-{frames_lim['max']}")
-    elif mask:
-        plt.title(f"Applied mask: {mask}")
-    elif frames_lim:
-        plt.title(f"Frames used: {frames_lim['min']}-{frames_lim['max']}")
-    plt.xlabel("Frame", fontweight="bold")
-    plt.ylabel("RMSD (\u212B)", fontweight="bold")
-    path_plot = f"{path_basename}.{format_output}"
-    plot.savefig(path_plot)
-    # clear the plot for the next use of the function
-    plt.clf()
-    logging.info(f"\tplot saved: {path_plot}")
-
-
 def sort_contacts(contact_names, pattern):
     """
     Get the order of the contacts on the first residue then on the second one.
@@ -653,11 +606,8 @@ if __name__ == "__main__":
                       exc_info=True)
         sys.exit(1)
 
-    # compute RMSD and create the plot
-    basename = os.path.splitext(os.path.basename(args.input))[0]
-    rmsd(trajectory, args.out, basename, args.format, frames_limits, args.mask)
-
     # find the Hydrogen bonds
+    basename = os.path.splitext(os.path.basename(args.input))[0]
     pattern_contact = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
     data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.second_half_percent, pattern_contact,
                                   args.out, basename, frames_limits)
