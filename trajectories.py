@@ -135,7 +135,7 @@ def check_limits(frames, roi):
     return frames_lim, roi_lim
 
 
-def load_trajectory(trajectory_file, topology_file, ps_frame, frames=None):
+def load_trajectory(trajectory_file, topology_file, frames=None):
     """
     Load a trajectory and apply a mask if mask argument is set.
 
@@ -143,8 +143,6 @@ def load_trajectory(trajectory_file, topology_file, ps_frame, frames=None):
     :type trajectory_file: str
     :param topology_file: the topology file path.
     :type topology_file: str
-    :param ps_frame: the time a frame represents in picoseconds.
-    :type ps_frame: float
     :param frames: the frames to use.
     :type frames: str
     :return: the loaded trajectory.
@@ -163,7 +161,6 @@ def load_trajectory(trajectory_file, topology_file, ps_frame, frames=None):
     else:
         logging.info(f"\tFrames used:\t1 to {traj.n_frames}")
     logging.info(f"\tFrames total:\t{traj.n_frames}")
-    logging.info(f"\tMD duration:\t{traj.n_frames * ps_frame} nanoseconds")
     logging.info(f"\tMolecules:\t{traj.topology.n_mols}")
     logging.info(f"\tResidues:\t{traj.topology.n_residues}")
     logging.info(f"\tAtoms:\t\t{traj.topology.n_atoms}")
@@ -559,8 +556,6 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--out", required=True, type=str, help="the path to the output directory.")
     parser.add_argument("-t", "--topology", required=True, type=str,
                         help="the path to the molecular dynamics topology file.")
-    parser.add_argument("-p", "--ps-by-frame", required=True, type=float,
-                        help="the elapsed time in picoseconds for each frame as set in the MD configuration file.")
     parser.add_argument("-d", "--distance-contacts", required=False, type=restricted_positive, default=3.0,
                         help="An hydrogen bond is defined as A-HD, where A is acceptor heavy atom, H is hydrogen, D is "
                              "donor heavy atom. An hydrogen bond is formed when A to D distance < distance. "
@@ -627,7 +622,7 @@ if __name__ == "__main__":
 
     # load the trajectory
     try:
-        trajectory = load_trajectory(args.input, args.topology, args.ps_by_frame, args.frames)
+        trajectory = load_trajectory(args.input, args.topology, args.frames)
     except RuntimeError as exc:
         logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists",
                       exc_info=True)
