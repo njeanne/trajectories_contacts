@@ -24,6 +24,6 @@ The usage of the script after activating the conda environment can be displayed 
 
 The script produces a heatmap of the contacts:
 
-![heatmap of the hydrogen bonds](img/heatmap.svg)
+![heatmap of the hydrogen bonds](doc/_static/heatmap.svg)
 
 and a CSV file of this contacts.
