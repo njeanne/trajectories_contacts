@@ -7,22 +7,19 @@ Created on 17 Mar. 2022
 __author__ = "Nicolas JEANNE"
 __copyright__ = "GNU General Public License"
 __email__ = "jeanne.n@chu-toulouse.fr"
-__version__ = "2.0.0"
+__version__ = "3.0.0"
 
 import argparse
+import gzip
 import logging
 import os
 import re
+import shutil
 import statistics
 import sys
 
-import matplotlib
 import pandas as pd
 import pytraj as pt
-import matplotlib.pyplot as plt
-from matplotlib import rcParams
-import seaborn as sns
-matplotlib.use('Agg')
 
 
 def restricted_float(value_to_inspect):
@@ -102,19 +99,16 @@ def create_log(path, level):
     return logging
 
 
-def check_limits(frames, roi):
-    """Check if the selected frames and the region of interest (roi) are valid .
+def check_limits(frames):
+    """Check if the selected frames are valid.
 
     :param frames: the limits of the frames to use.
     :type frames: str
-    :param roi: the region of interest limits.
-    :type roi: str
     :raises ArgumentTypeError: values not in the fixed limits.
-    :return: the frames and region of interest limits.
-    :rtype: dict, dict
+    :return: the frames limits.
+    :rtype: dict
     """
     frames_lim = {}
-    roi_lim = {}
     pattern = re.compile("(\\d+)-(\\d+)")
     if frames:
         match = pattern.search(frames)
@@ -124,15 +118,7 @@ def check_limits(frames, roi):
         else:
             raise argparse.ArgumentTypeError(f"--frames {frames} is not a valid format, valid format should be: "
                                              f"--frames <DIGITS>-<DIGITS>")
-    if roi:
-        match = pattern.search(roi)
-        if match:
-            roi_lim["min"] = int(match.group(1))
-            roi_lim["max"] = int(match.group(2))
-        else:
-            raise argparse.ArgumentTypeError(f"--roi-hm {roi} is not a valid format, valid format should be: "
-                                             f"--roi-hm <DIGITS>-<DIGITS>")
-    return frames_lim, roi_lim
+    return frames_lim
 
 
 def load_trajectory(trajectory_file, topology_file, frames=None):
@@ -205,7 +191,7 @@ def sort_contacts(contact_names, pattern):
     return ordered
 
 
-def hydrogen_bonds(traj, dist_thr, angle_cutoff, thr_2nd_half_md, pattern_hb, out_dir, out_basename, lim_frames=None):
+def hydrogen_bonds(traj, dist_thr, angle_cutoff, thr, pattern_hb, out_dir, out_basename, lim_frames=None):
     """
     Get the hydrogen bonds between the different atoms of the protein during the molecular dynamics simulation.
     Hydrogen bond is defined as A-HD, where A is acceptor heavy atom, H is hydrogen, D is donor heavy atom. Hydrogen
@@ -217,9 +203,9 @@ def hydrogen_bonds(traj, dist_thr, angle_cutoff, thr_2nd_half_md, pattern_hb, ou
     :type dist_thr: float
     :param angle_cutoff: the angle cutoff for the hydrogen bonds.
     :type angle_cutoff: int
-    :param thr_2nd_half_md: the minimal percentage of contacts for atoms contacts of different residues in the
+    :param thr: the minimal percentage of contacts for atoms contacts of different residues in the
     second half of the simulation.
-    :type thr_2nd_half_md: float
+    :type thr: float
     :param pattern_hb: the pattern for the hydrogen bond name.
     :type pattern_hb: re.pattern
     :param out_dir: the output directory.
@@ -235,6 +221,7 @@ def hydrogen_bonds(traj, dist_thr, angle_cutoff, thr_2nd_half_md, pattern_hb, ou
     h_bonds = pt.hbond(traj, distance=dist_thr, angle=angle_cutoff)
     nb_total_contacts = len(h_bonds.data) - 1
     dist = pt.distance(traj, h_bonds.get_amber_mask()[0])
+    frames_txt = "the whole MD" if lim_frames else f"frames {lim_frames['min']} to {lim_frames['max']}"
     logging.info(f"Search for inter-residues polar contacts in {nb_total_contacts} total polar contacts:")
 
     nb_intra_residue_contacts = 0
@@ -253,23 +240,20 @@ def hydrogen_bonds(traj, dist_thr, angle_cutoff, thr_2nd_half_md, pattern_hb, ou
                     second_half = dist[idx][int(len(dist[idx])/2):]
                     # retrieve only the contacts >= percentage threshold of frames in the second half of the simulation
                     pct_contacts = len(second_half[second_half <= dist_thr]) / len(second_half) * 100
-                    if pct_contacts >= thr_2nd_half_md:
+                    if pct_contacts >= thr:
                         data_hydrogen_bonds[h_bond.key] = dist[idx]
                     else:
                         nb_frames_contacts_2nd_half_thr += 1
                         logging.debug(f"\t {h_bond.key}: {pct_contacts:.1f}% of the frames with contacts under the "
-                                      f"threshold of {thr_2nd_half_md:.1f}% for the second half of the "
-                                      f"simulation, contact skipped")
+                                      f"threshold of {thr:.1f}% in {frames_txt}, contact skipped")
             idx += 1
 
     nb_used_contacts = nb_total_contacts - nb_intra_residue_contacts - nb_frames_contacts_2nd_half_thr
     logging.info(f"\t{nb_intra_residue_contacts}/{nb_total_contacts} intra residues atoms contacts discarded.")
     logging.info(f"\t{nb_frames_contacts_2nd_half_thr}/{nb_total_contacts} inter residues atoms contacts discarded "
-                 f"with number of contacts frames under the threshold of {thr_2nd_half_md:.1f}% for the "
-                 f"second half of the simulation.")
+                 f"with number of contacts frames under the threshold of {thr:.1f}% for {frames_txt}.")
     if nb_used_contacts == 0:
-        logging.error(f"\t{nb_used_contacts} inter residues atoms contacts remaining, analysis stopped. Check the "
-                      f"applied mask selection value if used.")
+        logging.error(f"\t{nb_used_contacts} inter residues atoms contacts remaining, analysis stopped.")
         sys.exit(0)
     logging.info(f"\t{nb_used_contacts} inter residues atoms contacts used.")
     ordered_columns = sort_contacts(data_hydrogen_bonds.keys(), pattern_hb)
@@ -277,58 +261,19 @@ def hydrogen_bonds(traj, dist_thr, angle_cutoff, thr_2nd_half_md, pattern_hb, ou
     df = df[ordered_columns]
     if lim_frames:
         df["frames"] = [x + lim_frames["min"] for x in list(df["frames"])]
-    out_path = os.path.join(out_dir, f"h_bonds_by_frame_{out_basename}.csv")
-    df.to_csv(out_path, index=False)
-    logging.info(f"\tHydrogen bonds file saved: {out_path}")
+    out_path_bn = os.path.join(out_dir, f"contacts_by_frame_{out_basename}")
+    # write the CSV file
+    path_csv = f"{out_path_bn}.csv"
+    df.to_csv(f"{out_path_bn}.csv", index=False)
+    # compress the CSV file
+    path_compressed = f"{out_path_bn}.gz"
+    with open(path_csv, 'rb') as file_handler_in:
+        with gzip.open(path_compressed, 'wb') as file_handler_out:
+            shutil.copyfileobj(file_handler_in, file_handler_out)
+    os.remove(path_csv)
+    logging.info(f"\tContacts by frame file saved: {path_compressed}")
 
     return df
-
-
-def plot_individual_contacts(df, out_dir, out_basename, dist_thr, format_output, frames_lim=None):
-    """
-    Plot individual inter residues polar contacts.
-
-    :param df: the inter residues polar contacts.
-    :type df: pd.Dataframe
-    :param out_dir: the output directory path.
-    :type out_dir: str
-    :param out_basename: the plot basename.
-    :type out_basename: str
-    :param dist_thr: the threshold distance in Angstroms for contacts.
-    :type dist_thr: float
-    :param format_output: the output format for the plots.
-    :type format_output: str
-    :param frames_lim: the frames limits.
-    :type frames_lim: dict
-    """
-    contacts_plots_dir = os.path.join(out_dir, "individual_contacts")
-    os.makedirs(contacts_plots_dir, exist_ok=True)
-
-    # plot all the contacts
-    logging.info("Creating individual plots for inter-residues atoms contacts.")
-    nb_plots = 0
-    for contact_id in df.columns[1:]:
-        source = df[["frames", contact_id]]
-        scattered_plot = sns.scatterplot(data=source, x="frames", y=contact_id)
-        plot = scattered_plot.get_figure()
-        title = f"Contact: {contact_id}"
-        plt.suptitle(title, fontsize="large", fontweight="bold")
-        plt.xlabel("Frames", fontweight="bold")
-        plt.ylabel("distance (\u212B)", fontweight="bold")
-        # add the threshold horizontal line
-        scattered_plot.axhline(dist_thr, color="red")
-        # add the 2nd part of MD vertical line
-        if frames_lim:
-            thr_2nd_half = frames_lim["min"] + int((frames_lim["max"] - frames_lim["min"]) / 2)
-        else:
-            thr_2nd_half = int(len(df["frames"]) / 2)
-        scattered_plot.axvline(thr_2nd_half, color="red")
-        out_path = os.path.join(contacts_plots_dir, f"{out_basename}_{contact_id}.{format_output}")
-        plot.savefig(out_path)
-        nb_plots += 1
-        # clear the plot for the next use of the function
-        plt.clf()
-    logging.info(f"\t{nb_plots}/{len(df.columns[1:])} inter residues atoms contacts plot saved in {contacts_plots_dir}")
 
 
 def contacts_csv(df, out_dir, out_basename, pattern):
@@ -352,10 +297,8 @@ def contacts_csv(df, out_dir, out_basename, pattern):
             "donor residue": [],
             "acceptor position": [],
             "acceptor residue": [],
-            "median distance whole MD": [],
-            "median distance 2nd half MD": []}
+            "median distance": []}
 
-    df_second_half = df.iloc[int(len(df.index) / 2):]
     for contact_id in df.columns[1:]:
         match = pattern.search(contact_id)
         if match:
@@ -370,12 +313,11 @@ def contacts_csv(df, out_dir, out_basename, pattern):
             data["donor residue"].append(f"no match with {pattern.pattern}")
             data["acceptor position"].append(f"no match with {pattern.pattern}")
             data["acceptor_residue"].append(f"no match with {pattern.pattern}")
-        data["median distance whole MD"].append(round(statistics.median(df.loc[:, contact_id]), 2))
-        data["median distance 2nd half MD"].append(round(statistics.median(df_second_half.loc[:, contact_id]), 2))
+        data["median distance"].append(round(statistics.median(df.loc[:, contact_id]), 2))
     contacts_stat = pd.DataFrame(data)
-    out_path = os.path.join(out_dir, f"contacts_{out_basename}.csv")
+    out_path = os.path.join(out_dir, f"contacts_by_residue_{out_basename}.csv")
     contacts_stat.to_csv(out_path, index=False)
-    logging.info(f"\tcontacts CSV saved: {out_path}")
+    logging.info(f"\tcontacts by residue CSV file saved: {out_path}")
 
     return contacts_stat
 
@@ -383,7 +325,7 @@ def contacts_csv(df, out_dir, out_basename, pattern):
 def reduce_contacts_dataframe(raw_df, dist_col, thr, roi_lim):
     """
     The dataframe are filtered on the values under the distance threshold, then when multiple rows of the same
-    combination of donor and acceptor residues keep the one with the minimal contact distance (between the atoms of
+    combination of donor and acceptor residues, keep the one with the minimal contact distance (between the atoms of
     this 2 residues) and create a column with the number of contacts between this 2 residues.
 
     :param raw_df: the contact residues dataframe.
@@ -483,59 +425,6 @@ def get_df_distances_nb_contacts(df, dist_col):
     return source_distances, source_nb_contacts
 
 
-def heatmap_contacts(df_residues, distances_col, threshold_contact, bn, out_dir, output_fmt, lim_roi, lim_frames):
-    """
-    Create the heatmap of contacts between residues.
-
-    :param df_residues: the statistics dataframe.
-    :type df_residues: pd.DataFrame
-    :param distances_col: the column in the dataframe to get the distances.
-    :type distances_col: str
-    :param threshold_contact: the maximal contact distance in Angstroms.
-    :type threshold_contact: float
-    :param bn: the basename.
-    :type bn: str
-    :param out_dir: the output directory.
-    :type out_dir: str
-    :param output_fmt: the output format for the heatmap.
-    :type output_fmt: str
-    :param lim_roi: the region of interest limits for the heatmap.
-    :type lim_roi: dict
-    :param lim_frames: the frames used in the trajectory.
-    :type lim_frames: dict
-    """
-    # keep only the minimal distance between 2 residues and add the number of contacts
-    df_residues = reduce_contacts_dataframe(df_residues, distances_col, threshold_contact, lim_roi)
-
-    # create the distances and number of contacts dataframes to produce the heatmap
-    source_distances, source_nb_contacts = get_df_distances_nb_contacts(df_residues, distances_col)
-
-    # increase the size of the heatmap if too much entries
-    factor = int(len(source_distances) / 40) if len(source_distances) / 40 >= 1 else 1
-    logging.debug(f"{len(source_distances)} entries, the size of the figure is multiplied by a factor {factor}.")
-    rcParams["figure.figsize"] = 15 * factor, 12 * factor
-    # create the heatmap
-    heatmap = sns.heatmap(source_distances, annot=source_nb_contacts, cbar_kws={"label": "Distance (\u212B)"},
-                          linewidths=0.5, xticklabels=True, yticklabels=True)
-    heatmap.figure.axes[-1].yaxis.label.set_size(15)
-    plot = heatmap.get_figure()
-    title = f"Contact residues {distances_col}: {bn}"
-    plt.suptitle(title, fontsize="large", fontweight="bold")
-    subtitle = "Number of residues atoms in contact are displayed in the squares."
-    if lim_roi:
-        subtitle = f"{subtitle}\nHeatmap focus on donor residues {lim_roi['min']} to {lim_roi['max']}"
-    if lim_frames:
-        subtitle = f"{subtitle}\nMolecular Dynamics frames used: {lim_frames['min']} to {lim_frames['max']}"
-    plt.title(subtitle)
-    plt.xlabel("Acceptors", fontweight="bold")
-    plt.ylabel("Donors", fontweight="bold")
-    out_path = os.path.join(out_dir, f"heatmap_{distances_col.replace(' ', '-')}_{bn}.{output_fmt}")
-    plot.savefig(out_path)
-    # clear the plot for the next use of the function
-    plt.clf()
-    logging.info(f"\tmedian distance heatmap saved: {out_path}")
-
-
 if __name__ == "__main__":
     descr = f"""
     {os.path.basename(__file__)} v. {__version__}
@@ -546,11 +435,17 @@ if __name__ == "__main__":
 
     Distributed on an "AS IS" basis without warranties or conditions of any kind, either express or implied.
 
-    From a molecular dynamics trajectory file perform trajectory analysis. The script looks for the hydrogen bonds
-    between atoms of two different residues. An hydrogen bond is defined as A-HD, where A is acceptor heavy atom, H is
-    hydrogen, D is donor heavy atom. An hydrogen bond is formed when A to D distance < distance cutoff and A-H-D angle
-    > angle cutoff.
-    The hydrogen bonds are represented as a CSV file and heatmaps.
+    From a molecular dynamics trajectory file, the script performs a trajectory analysis to search contacts. The script 
+    looks for the hydrogen bonds between the atoms of two different residues. 
+
+    An hydrogen bond is defined as A-HD, where A is the acceptor heavy atom, H is the hydrogen and D is the donor heavy 
+    atom. An hydrogen bond is formed when A to D distance < distance cutoff and A-H-D angle > angle cutoff.
+    A contact is valid if the number of frames (defined by the user with --frames or on the whole data) where a contact 
+    is produced between 2 atoms is greater or equal to the proportion threshold of contacts.
+
+    The hydrogen bonds are represented as 2 CSV files:
+        - the contacts by frame (compressed file).
+        - the contacts median distance by residue.
     """
     parser = argparse.ArgumentParser(description=descr, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-o", "--out", required=True, type=str, help="the path to the output directory.")
@@ -567,24 +462,9 @@ if __name__ == "__main__":
     parser.add_argument("-x", "--frames", required=False, type=str,
                         help="the frames to load from the trajectory, the format must be two integers separated by "
                              "an hyphen, i.e to load the trajectory from the frame 500 to 2000: --frames 500-2000")
-    parser.add_argument("-r", "--roi-hm", required=False, type=str,
-                        help="the boundaries of the region to display in the heatmap within the mask selection if any. "
-                             "In example if the mask '682-850' is applied and the region of interest for the "
-                             "heatmap is '--roi 35-39', only positions 717 to 721 will be displayed in the heatmap.")
-    parser.add_argument("-f", "--format", required=False, default="svg",
-                        choices=["eps", "jpg", "jpeg", "pdf", "pgf", "png", "ps", "raw", "svg", "svgz", "tif", "tiff"],
-                        help="the output plots format: 'eps': 'Encapsulated Postscript', "
-                             "'jpg': 'Joint Photographic Experts Group', 'jpeg': 'Joint Photographic Experts Group', "
-                             "'pdf': 'Portable Document Format', 'pgf': 'PGF code for LaTeX', "
-                             "'png': 'Portable Network Graphics', 'ps': 'Postscript', 'raw': 'Raw RGBA bitmap', "
-                             "'rgba': 'Raw RGBA bitmap', 'svg': 'Scalable Vector Graphics', "
-                             "'svgz': 'Scalable Vector Graphics', 'tif': 'Tagged Image File Format', "
-                             "'tiff': 'Tagged Image File Format'. Default is 'svg'.")
-    parser.add_argument("-s", "--second-half-percent", required=False, type=restricted_float, default=20.0,
+    parser.add_argument("-p", "--proportion-contacts", required=False, type=restricted_float, default=20.0,
                         help="the minimal percentage of frames which make contact between 2 atoms of different "
-                             "residues in the second half of the molecular dynamics simulation, default is 20%%.")
-    parser.add_argument("-i", "--individual-plots", required=False, action="store_true",
-                        help="plot the individual contacts.")
+                             "residues in the selected frame of the molecular dynamics simulation, default is 20%%.")
     parser.add_argument("-l", "--log", required=False, type=str,
                         help="the path for the log file. If this option is skipped, the log file is created in the "
                              "output directory.")
@@ -608,17 +488,13 @@ if __name__ == "__main__":
     logging.info(f"version: {__version__}")
     logging.info(f"CMD: {' '.join(sys.argv)}")
     logging.info(f"atoms maximal contacts distance threshold: {args.distance_contacts} \u212B")
-    logging.info(f"minimal proportion of frames with atoms contacts between two different residues in the second "
-                 f"half of the molecular dynamics: {args.second_half_percent:.1f}%")
+    logging.info(f"minimal proportion of frames with atoms contacts between two different residues in the selected "
+                 f"frames of the molecular dynamics: {args.proportion_contacts:.1f}%")
     try:
-        frames_limits, roi_limits = check_limits(args.frames, args.roi_hm)
+        frames_limits = check_limits(args.frames)
     except argparse.ArgumentTypeError as exc:
         logging.error(exc)
         sys.exit(1)
-
-    # set the seaborn plots theme and size
-    sns.set_theme()
-    rcParams["figure.figsize"] = 15, 12
 
     # load the trajectory
     try:
@@ -635,17 +511,8 @@ if __name__ == "__main__":
     # find the Hydrogen bonds
     basename = os.path.splitext(os.path.basename(args.input))[0]
     pattern_contact = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
-    data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.angle_cutoff, args.second_half_percent,
+    data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.angle_cutoff, args.proportion_contacts,
                                   pattern_contact, args.out, basename, frames_limits)
-
-    if args.individual_plots:
-        # plot individual contacts
-        plot_individual_contacts(data_h_bonds, args.out, basename, args.distance_contacts, args.format, frames_limits)
 
     # write the CSV for the contacts
     stats = contacts_csv(data_h_bonds, args.out, basename, pattern_contact)
-
-    # get the heatmaps of validated contacts by residues for each column of the statistics dataframe
-    for distances_column_id in stats.columns[5:]:
-        heatmap_contacts(stats, distances_column_id, args.distance_contacts, basename, args.out, args.format,
-                         roi_limits, frames_limits)
