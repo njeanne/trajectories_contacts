@@ -33,7 +33,7 @@ The script can be tested with the test data provided in the `data` directory, wh
 conda activate traj
 
 ./trajectories_contacts.py --frames 500-2000 --proportion-contacts 50.0 \
---distance-contacts 3.0 --angle-cutoff 135  --out results/traj_test\
+--distance-contacts 3.0 --angle-cutoff 135  --out results/traj_test \
 --topology data/traj_test.parm  data/traj_test.nc
 
 conda deactivate
