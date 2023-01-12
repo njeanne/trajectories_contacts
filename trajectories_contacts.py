@@ -108,9 +108,10 @@ def check_limits(frames):
     :return: the frames limits.
     :rtype: dict
     """
-    frames_lim = {}
+    frames_lim = None
     pattern = re.compile("(\\d+)-(\\d+)")
     if frames:
+        frames_lim = {}
         match = pattern.search(frames)
         if match:
             frames_lim["min"] = int(match.group(1))
@@ -220,8 +221,8 @@ def hydrogen_bonds(traj, dist_thr, angle_cutoff, thr, pattern_hb, out_dir, out_b
     logging.info("Hydrogen bonds retrieval from the trajectory file, please be patient..")
     h_bonds = pt.hbond(traj, distance=dist_thr, angle=angle_cutoff)
     nb_total_contacts = len(h_bonds.data) - 1
-    dist = pt.distance(traj, h_bonds.get_amber_mask()[0])
-    frames_txt = "the whole MD" if lim_frames else f"frames {lim_frames['min']} to {lim_frames['max']}"
+    distances_hbonds = pt.distance(traj, h_bonds.get_amber_mask()[0])
+    frames_txt = "the whole frames" if lim_frames is None else f"frames {lim_frames['min']} to {lim_frames['max']}"
     logging.info(f"Search for inter-residues polar contacts in {nb_total_contacts} total polar contacts:")
 
     nb_intra_residue_contacts = 0
@@ -236,18 +237,16 @@ def hydrogen_bonds(traj, dist_thr, angle_cutoff, thr, pattern_hb, out_dir, out_b
                     nb_intra_residue_contacts += 1
                     logging.debug(f"\t {h_bond.key}: atoms contact from same residue, contact skipped")
                 else:
-                    # get the second half of the simulation
-                    second_half = dist[idx][int(len(dist[idx])/2):]
-                    # retrieve only the contacts >= percentage threshold of frames in the second half of the simulation
-                    pct_contacts = len(second_half[second_half <= dist_thr]) / len(second_half) * 100
+                    # retrieve only the contacts >= percentage threshold of frames in the selected frames
+                    pct_contacts = len(distances_hbonds[idx][distances_hbonds[idx] <= dist_thr]) / len(
+                        distances_hbonds[idx]) * 100
                     if pct_contacts >= thr:
-                        data_hydrogen_bonds[h_bond.key] = dist[idx]
+                        data_hydrogen_bonds[h_bond.key] = distances_hbonds[idx]
                     else:
                         nb_frames_contacts_2nd_half_thr += 1
                         logging.debug(f"\t {h_bond.key}: {pct_contacts:.1f}% of the frames with contacts under the "
-                                      f"threshold of {thr:.1f}% in {frames_txt}, contact skipped")
+                                      f"threshold of {thr:.1f}% in {frames_txt}, contact skipped.")
             idx += 1
-
     nb_used_contacts = nb_total_contacts - nb_intra_residue_contacts - nb_frames_contacts_2nd_half_thr
     logging.info(f"\t{nb_intra_residue_contacts}/{nb_total_contacts} intra residues atoms contacts discarded.")
     logging.info(f"\t{nb_frames_contacts_2nd_half_thr}/{nb_total_contacts} inter residues atoms contacts discarded "
