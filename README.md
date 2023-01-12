@@ -1,6 +1,16 @@
-# Molecular Dynamics Trajectories analysis
+# Molecular Dynamics Trajectories contacts analysis
 
-The script will compute the Root Mean Square Deviation and the contacts plots for a molecular dynamics simulation trajectory.
+From a molecular dynamics trajectory file, the script performs a trajectory analysis to search contacts. The script 
+looks for the hydrogen bonds between the atoms of two different residues. 
+
+An hydrogen bond is defined as A-HD, where A is the acceptor heavy atom, H is the hydrogen and D is the donor heavy 
+atom. An hydrogen bond is formed when A to D distance < distance cutoff and A-H-D angle > angle cutoff.
+A contact is valid if the number of frames (defined by the user with --frames or on the whole data) where a contact 
+is produced between 2 atoms is greater or equal to the proportion threshold of contacts.
+
+The hydrogen bonds are represented as 2 CSV files:
+   - the contacts by frame (compressed file).
+   - the contacts median distance by residue.
 
 ## Conda environment
 
@@ -14,16 +24,24 @@ conda env create -f conda_env/trajectories_env.yml
 conda activate traj
 ```
 
-## Results
+## Usage
 
-The usage of the script after activating the conda environment can be displayed with:
+The script can be tested with the test data provided in the `data` directory, which contains a trajectory file 
+`traj_test.nc` with 2000 frames and the topology associated file `traj_test.parm`. The commands are:
 
 ```shell script
-./trajectories.py -h
+conda activate traj
+
+./trajectories_contacts.py --frames 500-2000 --proportion-contacts 50.0 \
+--distance-contacts 3.0 --angle-cutoff 135  --out results/traj_test\
+--topology data/traj_test.parm  data/traj_test.nc
+
+conda deactivate
 ```
 
-The script produces a heatmap of the contacts:
-
-![heatmap of the hydrogen bonds](doc/_static/heatmap.svg)
-
-and a CSV file of this contacts.
+The parameter used are:
+- `--frames 500-2000`: selection of the frames 500 to 2000.
+- `--proportion-contacts 50.0`: a contact is validated only if it is at least present in 50% of the frames 500 to 2000.
+- `--distance-contacts 3.0`: maximal distance in Angstroms between 2 atoms of different residues.
+- `--angle-cutoff 135`: the minimal angle in a contact between a donor/hydrogen/acceptor.
+- `--out`: the directory where the results files will be created.
