@@ -17,6 +17,7 @@ import re
 import shutil
 import statistics
 import sys
+import yaml
 
 import pandas as pd
 import pytraj as pt
@@ -154,6 +155,32 @@ def load_trajectory(trajectory_file, topology_file, frames=None):
     return traj
 
 
+def record_analysis_parameters(out, distance_contacts, angle_cutoff, proportion_contacts, frames_lim):
+    """
+    Record the analysis parameters in a YAML file.
+
+    :param out: the path to the output YAML file.
+    :type out: str
+    :param distance_contacts: the threshold atoms distance in Angstroms for contacts.
+    :type distance_contacts: float
+    :param angle_cutoff: the angle cutoff for the hydrogen bonds.
+    :type angle_cutoff: int
+    :param proportion_contacts: the minimal percentage of contacts for atoms contacts of different residues in the
+    selected frames.
+    :type proportion_contacts: float
+    :param frames_lim: the frames selected by the user.
+    :type frames_lim: dict
+    """
+    parameters = {"maximal atoms distance": distance_contacts,
+                  "angle cutoff": angle_cutoff,
+                  "proportion contacts": proportion_contacts,
+                  "frames": frames_lim}
+
+    with open(out, 'w') as file_handler:
+        documents = yaml.dump(parameters, file_handler)
+    logging.info(f"Analysis parameters recorded: {out}")
+
+
 def sort_contacts(contact_names, pattern):
     """
     Get the order of the contacts on the first residue then on the second one.
@@ -275,7 +302,7 @@ def hydrogen_bonds(traj, dist_thr, angle_cutoff, thr, pattern_hb, out_dir, out_b
     return df
 
 
-def contacts_csv(df, out_dir, out_basename, pattern, atoms_dist_thr, angle_thr, proportion_thr, selected_frames):
+def contacts_csv(df, out_dir, out_basename, pattern):
     """
     Get the median distances for the contacts in the molecular dynamics.
 
@@ -287,15 +314,6 @@ def contacts_csv(df, out_dir, out_basename, pattern, atoms_dist_thr, angle_thr, 
     :type out_basename: str
     :param pattern: the pattern for the contact.
     :type pattern: re.pattern
-    :param atoms_dist_thr: the threshold atoms distance in Angstroms for contacts.
-    :type atoms_dist_thr: float
-    :param angle_thr: the angle cutoff for the hydrogen bonds.
-    :type angle_thr: int
-    :param proportion_thr: the minimal percentage of contacts for atoms contacts of different residues in the
-    selected frames.
-    :type proportion_thr: float
-    :param selected_frames: the frames selected by the user.
-    :type selected_frames: dict
     :return: the dataframe of the contacts statistics.
     :rtype: pd.DataFrame
     """
@@ -324,12 +342,7 @@ def contacts_csv(df, out_dir, out_basename, pattern, atoms_dist_thr, angle_thr, 
         data["median distance"].append(round(statistics.median(df.loc[:, contact_id]), 2))
     contacts_stat = pd.DataFrame(data)
     out_path = os.path.join(out_dir, f"contacts_by_residue_{out_basename}.csv")
-    with open(out_path, "w") as file_handler:
-        file_handler.write(f"# maximal atoms distance: {atoms_dist_thr}\n")
-        file_handler.write(f"# minimal angle: {angle_thr}\n")
-        file_handler.write(f"# used frames: {selected_frames['min']}-{selected_frames['max']}\n")
-        file_handler.write(f"# minimal proportion of frames with contacts (%): {proportion_thr}\n")
-        contacts_stat.to_csv(file_handler, index=False)
+    contacts_stat.to_csv(out_path, index=False)
     logging.info(f"\tcontacts by residue CSV file saved: {out_path}")
 
     return contacts_stat
@@ -418,15 +431,15 @@ if __name__ == "__main__":
                       exc_info=True)
         sys.exit(1)
 
-    # find the Hydrogen bonds
+    # record the analysis parameter in a yaml file
     basename = os.path.splitext(os.path.basename(args.input))[0]
+    record_analysis_parameters(os.path.join(args.out, f"{basename}_analysis_parameters.yaml"),
+                               args.distance_contacts, args.angle_cutoff, args.proportion_contacts, frames_limits)
+
+    # find the Hydrogen bonds
     pattern_contact = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
     data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.angle_cutoff, args.proportion_contacts,
                                   pattern_contact, args.out, basename, frames_limits)
 
-    # if the frames limits is not set use the first and the last frame of the trajectory
-    if frames_limits is None:
-        frames_limits = {"min": 1, "max": trajectory.n_frames}
     # write the CSV for the contacts
-    stats = contacts_csv(data_h_bonds, args.out, basename, pattern_contact, args.distance_contacts, args.angle_cutoff,
-                         args.proportion_contacts, frames_limits)
+    stats = contacts_csv(data_h_bonds, args.out, basename, pattern_contact)
