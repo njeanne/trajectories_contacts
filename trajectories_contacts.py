@@ -155,12 +155,14 @@ def load_trajectory(trajectory_file, topology_file, frames=None):
     return traj
 
 
-def record_analysis_parameters(out, distance_contacts, angle_cutoff, proportion_contacts, frames_lim):
+def record_analysis_parameters(out, traj, distance_contacts, angle_cutoff, proportion_contacts, frames_lim):
     """
     Record the analysis parameters in a YAML file.
 
     :param out: the path to the output YAML file.
     :type out: str
+    :param traj: the trajectory.
+    :type traj: pt.Trajectory
     :param distance_contacts: the threshold atoms distance in Angstroms for contacts.
     :type distance_contacts: float
     :param angle_cutoff: the angle cutoff for the hydrogen bonds.
@@ -174,10 +176,11 @@ def record_analysis_parameters(out, distance_contacts, angle_cutoff, proportion_
     parameters = {"maximal atoms distance": distance_contacts,
                   "angle cutoff": angle_cutoff,
                   "proportion contacts": proportion_contacts,
-                  "frames": frames_lim}
+                  "frames": frames_lim,
+                  "protein length": traj.topology.n_residues}
 
     with open(out, 'w') as file_handler:
-        documents = yaml.dump(parameters, file_handler)
+        yaml.dump(parameters, file_handler)
     logging.info(f"Analysis parameters recorded: {out}")
 
 
@@ -433,8 +436,8 @@ if __name__ == "__main__":
 
     # record the analysis parameter in a yaml file
     basename = os.path.splitext(os.path.basename(args.input))[0]
-    record_analysis_parameters(os.path.join(args.out, f"{basename}_analysis_parameters.yaml"),
-                               args.distance_contacts, args.angle_cutoff, args.proportion_contacts, frames_limits)
+    record_analysis_parameters(os.path.join(args.out, f"{basename}_analysis_parameters.yaml"), trajectory,
+                               args.distance_contacts, args.angle_cutoff, args.proportion_contacts, frames_limits,)
 
     # find the Hydrogen bonds
     pattern_contact = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
