@@ -155,12 +155,15 @@ def load_trajectory(trajectory_file, topology_file, frames=None):
     return traj
 
 
-def record_analysis_parameters(out, traj, distance_contacts, angle_cutoff, proportion_contacts, frames_lim):
+def record_analysis_parameters(out_dir, bn, traj, distance_contacts, angle_cutoff, proportion_contacts, frames_lim,
+                               smp, sim_time):
     """
     Record the analysis parameters in a YAML file.
 
-    :param out: the path to the output YAML file.
-    :type out: str
+    :param out_dir: the path to the output directory.
+    :type out_dir: str
+    :param bn: the basename of the file.
+    :type bn: str
     :param traj: the trajectory.
     :type traj: pt.Trajectory
     :param distance_contacts: the threshold atoms distance in Angstroms for contacts.
@@ -172,14 +175,25 @@ def record_analysis_parameters(out, traj, distance_contacts, angle_cutoff, propo
     :type proportion_contacts: float
     :param frames_lim: the frames selected by the user.
     :type frames_lim: dict
+    :param smp: the sample name.
+    :type smp: str
+    :param sim_time: the molecular dynamics simulation time.
+    :type sim_time: str
+    :type: str
     """
     parameters = {"maximal atoms distance": distance_contacts,
                   "angle cutoff": angle_cutoff,
                   "proportion contacts": proportion_contacts,
                   "frames": frames_lim,
                   "protein length": traj.topology.n_residues}
-
-    with open(out, 'w') as file_handler:
+    if smp:
+        parameters["sample"] = smp
+    else:
+        parameters["sample"] = bn.replace("_", " ")
+    if sim_time:
+        parameters["MD duration"] = sim_time
+    out = os.path.join(out_dir, f"{bn}_analysis_parameters.yaml")
+    with open(out, "w") as file_handler:
         yaml.dump(parameters, file_handler)
     logging.info(f"Analysis parameters recorded: {out}")
 
@@ -391,6 +405,10 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--proportion-contacts", required=False, type=restricted_float, default=20.0,
                         help="the minimal percentage of frames which make contact between 2 atoms of different "
                              "residues in the selected frame of the molecular dynamics simulation, default is 20%%.")
+    parser.add_argument("-s", "--sample", required=False, type=str,
+                        help="the sample ID. If not used, the input file name will be used.")
+    parser.add_argument("-m", "--md-time", required=False, type=str,
+                        help="the molecular dynamics simulation time as free text.")
     parser.add_argument("-l", "--log", required=False, type=str,
                         help="the path for the log file. If this option is skipped, the log file is created in the "
                              "output directory.")
@@ -436,8 +454,8 @@ if __name__ == "__main__":
 
     # record the analysis parameter in a yaml file
     basename = os.path.splitext(os.path.basename(args.input))[0]
-    record_analysis_parameters(os.path.join(args.out, f"{basename}_analysis_parameters.yaml"), trajectory,
-                               args.distance_contacts, args.angle_cutoff, args.proportion_contacts, frames_limits,)
+    record_analysis_parameters(args.out, basename, trajectory, args.distance_contacts, args.angle_cutoff,
+                               args.proportion_contacts, frames_limits, args.sample, args.md_time)
 
     # find the Hydrogen bonds
     pattern_contact = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")

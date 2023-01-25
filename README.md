@@ -33,15 +33,24 @@ The script can be tested with the test data provided in the `data` directory, wh
 conda activate traj
 
 ./trajectories_contacts.py --frames 500-2000 --proportion-contacts 50.0 \
---distance-contacts 3.0 --angle-cutoff 135  --out results/traj_test \
---topology data/traj_test.parm  data/traj_test.nc
+--distance-contacts 3.0 --angle-cutoff 135  --out results/traj_test --md-time "2 ns"\
+--sample "trajectory test" --topology data/traj_test.parm  data/traj_test.nc
 
 conda deactivate
 ```
 
-The parameter used are:
+The optional parameter used are:
 - `--frames 500-2000`: selection of the frames 500 to 2000.
 - `--proportion-contacts 50.0`: a contact is validated only if it is at least present in 50% of the frames 500 to 2000.
 - `--distance-contacts 3.0`: maximal distance in Angstroms between 2 atoms of different residues.
 - `--angle-cutoff 135`: the minimal angle in a contact between a donor/hydrogen/acceptor.
 - `--out`: the directory where the results files will be created.
+- `--md-time`: the molecular dynamics simulation duration.
+- `--sample`: the sample name.
+
+## Outputs
+
+The script outputs are:
+- a CSV file of the contacts by residue.
+- a YAML file of the parameters used for this analysis. This file will be used for the script that creates the plots.
+- a compressed CSV file of the contacts by frame.
