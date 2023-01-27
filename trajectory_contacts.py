@@ -239,7 +239,7 @@ def sort_contacts(contact_names, pattern):
 def hydrogen_bonds(traj, dist_thr, angle_cutoff, thr, pattern_hb, out_dir, out_basename, lim_frames=None):
     """
     Get the hydrogen bonds between the different atoms of the protein during the molecular dynamics simulation.
-    Hydrogen bond is defined as A-HD, where A is acceptor heavy atom, H is hydrogen, D is donor heavy atom. Hydrogen
+    Hydrogen bond is defined as A-H-D, where A is acceptor heavy atom, H is hydrogen, D is donor heavy atom. Hydrogen
     bond is formed when A to D distance < distance cutoff and A-H-D angle > angle cutoff.
 
     :param traj: the trajectory.

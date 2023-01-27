@@ -1,4 +1,4 @@
-# Molecular Dynamics Trajectories contacts analysis
+# Molecular Dynamics Trajectory contacts analysis
 
 From a molecular dynamics trajectory file, the script performs a trajectory analysis to search contacts. The script 
 looks for the hydrogen bonds between the atoms of two different residues. 
