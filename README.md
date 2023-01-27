@@ -44,7 +44,6 @@ The optional parameter used are:
 - `--proportion-contacts 50.0`: a contact is validated only if it is at least present in 50% of the frames 500 to 2000.
 - `--distance-contacts 3.0`: maximal distance in Angstroms between 2 atoms of different residues.
 - `--angle-cutoff 135`: the minimal angle in a contact between a donor/hydrogen/acceptor.
-- `--out`: the directory where the results files will be created.
 - `--md-time`: the molecular dynamics simulation duration.
 - `--sample`: the sample name.
 
