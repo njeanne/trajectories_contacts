@@ -123,12 +123,12 @@ def check_limits(frames):
     return frames_lim
 
 
-def load_trajectory(trajectory_file, topology_file, frames=None):
+def load_trajectories(trajectory_files, topology_file, frames=None):
     """
-    Load a trajectory and apply a mask if mask argument is set.
+    Load the trajectory files and select frames if needed.
 
-    :param trajectory_file: the trajectory file path.
-    :type trajectory_file: str
+    :param trajectory_files: the trajectory file paths.
+    :type trajectory_files: list
     :param topology_file: the topology file path.
     :type topology_file: str
     :param frames: the frames to use.
@@ -136,34 +136,32 @@ def load_trajectory(trajectory_file, topology_file, frames=None):
     :return: the loaded trajectory.
     :rtype: pt.Trajectory
     """
-    logging.info("Loading trajectory file, please be patient..")
-    frame_indices = None
+    logging.info("Loading trajectory files, please be patient..")
+    traj = pt.iterload(trajectory_files, top=topology_file)
+    logging.info(f"\tTotal trajectories frames:\t{traj.n_frames}")
     if frames:
         frames_split = frames.split("-")
         frame_indices = range(int(frames_split[0]), int(frames_split[1]))
-
-    traj = pt.load(trajectory_file, top=topology_file, frame_indices=frame_indices)
-
-    if frames:
-        logging.info(f"\tFrames used:\t{frame_indices[0]} to {frame_indices[-1] + 1}")
+        traj = traj[frame_indices]
+        logging.info(f"\tSelected frames:\t\t{frame_indices[0]} to {frame_indices[-1] + 1}")
     else:
-        logging.info(f"\tFrames used:\t1 to {traj.n_frames}")
-    logging.info(f"\tFrames total:\t{traj.n_frames}")
-    logging.info(f"\tMolecules:\t{traj.topology.n_mols}")
-    logging.info(f"\tResidues:\t{traj.topology.n_residues}")
-    logging.info(f"\tAtoms:\t\t{traj.topology.n_atoms}")
+        logging.info(f"\tSelected frames:\t\t1 to {traj.n_frames}")
+    logging.info(f"\tUsed frames:\t\t\t{traj.n_frames}")
+    logging.info(f"\tMolecules:\t\t\t{traj.topology.n_mols}")
+    logging.info(f"\tResidues:\t\t\t{traj.topology.n_residues}")
+    logging.info(f"\tAtoms:\t\t\t\t{traj.topology.n_atoms}")
     return traj
 
 
-def record_analysis_parameters(out_dir, bn, traj, distance_contacts, angle_cutoff, proportion_contacts, frames_lim,
-                               smp, sim_time):
+def record_analysis_parameters(out_dir, smp, traj, distance_contacts, angle_cutoff, proportion_contacts, frames_lim,
+                               sim_time):
     """
     Record the analysis parameters in a YAML file.
 
     :param out_dir: the path to the output directory.
     :type out_dir: str
-    :param bn: the basename of the file.
-    :type bn: str
+    :param smp: the sample name.
+    :type smp: str
     :param traj: the trajectory.
     :type traj: pt.Trajectory
     :param distance_contacts: the threshold atoms distance in Angstroms for contacts.
@@ -175,8 +173,6 @@ def record_analysis_parameters(out_dir, bn, traj, distance_contacts, angle_cutof
     :type proportion_contacts: float
     :param frames_lim: the frames selected by the user.
     :type frames_lim: dict
-    :param smp: the sample name.
-    :type smp: str
     :param sim_time: the molecular dynamics simulation time.
     :type sim_time: str
     :type: str
@@ -185,14 +181,11 @@ def record_analysis_parameters(out_dir, bn, traj, distance_contacts, angle_cutof
                   "angle cutoff": angle_cutoff,
                   "proportion contacts": proportion_contacts,
                   "frames": frames_lim,
-                  "protein length": traj.topology.n_residues}
-    if smp:
-        parameters["sample"] = smp
-    else:
-        parameters["sample"] = bn.replace("_", " ")
+                  "protein length": traj.topology.n_residues,
+                  "sample": smp}
     if sim_time:
         parameters["MD duration"] = sim_time
-    out = os.path.join(out_dir, f"{bn}_analysis_parameters.yaml")
+    out = os.path.join(out_dir, f"{smp.replace(' ', '_')}_analysis_parameters.yaml")
     with open(out, "w") as file_handler:
         yaml.dump(parameters, file_handler)
     logging.info(f"Analysis parameters recorded: {out}")
@@ -233,7 +226,7 @@ def sort_contacts(contact_names, pattern):
     return ordered
 
 
-def hydrogen_bonds(traj, atoms_dist_thr, angle_cutoff, pct_thr, pattern_hb, out_dir, out_basename, lim_frames=None):
+def hydrogen_bonds(traj, atoms_dist_thr, angle_cutoff, pct_thr, pattern_hb, out_dir, smp, lim_frames=None):
     """
     Get the hydrogen bonds between the different atoms of the protein during the molecular dynamics simulation.
     Hydrogen bond is defined as A-HD, where A is acceptor heavy atom, H is hydrogen, D is donor heavy atom. Hydrogen
@@ -252,14 +245,14 @@ def hydrogen_bonds(traj, atoms_dist_thr, angle_cutoff, pct_thr, pattern_hb, out_
     :type pattern_hb: re.pattern
     :param out_dir: the output directory.
     :type out_dir: str
-    :param out_basename: the basename for the output CSV file.
-    :type out_basename: str
+    :param smp: the sample name.
+    :type smp: str
     :param lim_frames: the frames selected by the user.
     :type lim_frames: dict
     :return: the dataframe of the polar contacts.
     :rtype: pd.DataFrame
     """
-    logging.info("Hydrogen bonds retrieval from the trajectory file, please be patient..")
+    logging.info("Hydrogen bonds retrieval from the trajectories files, please be patient..")
     # search hydrogen bonds with distance < atoms distance threshold and angle > angle cut-off. Return the H bonds by
     # donor-acceptor with a dataset of frames, 0 when the contacts do not pass a threshold, 1 when they pass all the
     # thresholds, in ex: [0 0 1 0 1 ... 1 0 0 1]
@@ -307,7 +300,7 @@ def hydrogen_bonds(traj, atoms_dist_thr, angle_cutoff, pct_thr, pattern_hb, out_
     df = tmp_df.transpose()
     df = df.reset_index()
     df.columns = ["hydrogen bonds", "median distances"]
-    out_path_bn = os.path.join(out_dir, f"median_h-bond_frames_{out_basename}")
+    out_path_bn = os.path.join(out_dir, f"median_h-bond_frames_{smp.replace(' ', '_')}")
     # write the CSV file
     path_csv = f"{out_path_bn}.csv"
     df.to_csv(f"{out_path_bn}.csv", index=False, header=["hydrogen bonds", "median distances (\u212B)"])
@@ -316,7 +309,7 @@ def hydrogen_bonds(traj, atoms_dist_thr, angle_cutoff, pct_thr, pattern_hb, out_
     return df
 
 
-def contacts_csv(df, out_dir, out_basename, pattern):
+def contacts_csv(df, out_dir, smp, pattern):
     """
     Get the median distances for the contacts in the molecular dynamics.
 
@@ -324,8 +317,8 @@ def contacts_csv(df, out_dir, out_basename, pattern):
     :type df: pd.DataFrame
     :param out_dir: the directory output path.
     :type out_dir: str
-    :param out_basename: the basename.
-    :type out_basename: str
+    :param smp: the sample name.
+    :type smp: str
     :param pattern: the pattern for the contact.
     :type pattern: re.pattern
     :return: the dataframe of the contacts statistics.
@@ -355,7 +348,7 @@ def contacts_csv(df, out_dir, out_basename, pattern):
             data["acceptor_residue"].append(f"no match with {pattern.pattern}")
         data["median distance"].append(contact["median distances"])
     contacts_stat = pd.DataFrame(data)
-    out_path = os.path.join(out_dir, f"contacts_by_residue_{out_basename}.csv")
+    out_path = os.path.join(out_dir, f"contacts_by_residue_{smp.replace(' ', '_')}.csv")
     contacts_stat.to_csv(out_path, index=False)
     logging.info(f"\tcontacts by residue CSV file saved: {out_path}")
 
@@ -372,8 +365,8 @@ if __name__ == "__main__":
 
     Distributed on an "AS IS" basis without warranties or conditions of any kind, either express or implied.
 
-    From a molecular dynamics trajectory file, the script performs a trajectory analysis to search contacts. The script 
-    looks for the hydrogen bonds between the atoms of two different residues. 
+    From a molecular dynamics trajectories files, the script performs a trajectory analysis to search contacts. The 
+    script looks for the hydrogen bonds between the atoms of two different residues. 
 
     An hydrogen bond is defined as A-HD, where A is the acceptor heavy atom, H is the hydrogen and D is the donor heavy 
     atom. An hydrogen bond is formed when A to D distance < distance cutoff and A-H-D angle > angle cutoff.
@@ -381,7 +374,7 @@ if __name__ == "__main__":
     is produced between 2 atoms is greater or equal to the proportion threshold of contacts.
 
     The hydrogen bonds are represented as 2 CSV files:
-        - the contacts by frame (compressed file).
+        - the median of the frames contacts.
         - the contacts median distance by residue.
     """
     parser = argparse.ArgumentParser(description=descr, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -413,7 +406,7 @@ if __name__ == "__main__":
                         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
                         help="set the log level. If the option is skipped, log level is INFO.")
     parser.add_argument("--version", action="version", version=__version__)
-    parser.add_argument("input", type=str, help="the path to the molecular dynamics trajectory file.")
+    parser.add_argument("inputs", nargs="+", type=str, help="the paths to the molecular dynamics trajectory files.")
     args = parser.parse_args()
 
     # create output directory if necessary
@@ -439,25 +432,24 @@ if __name__ == "__main__":
 
     # load the trajectory
     try:
-        trajectory = load_trajectory(args.input, args.topology, args.frames)
+        trajectory = load_trajectories(args.inputs, args.topology, args.frames)
     except RuntimeError as exc:
-        logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists",
-                      exc_info=True)
+        logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({', '.join(args.inputs)}) files "
+                      f"exists", exc_info=True)
         sys.exit(1)
     except ValueError as exc:
-        logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({args.input}) files exists.",
-                      exc_info=True)
+        logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({', '.join(args.inputs)}) files "
+                      f"exists.", exc_info=True)
         sys.exit(1)
 
     # record the analysis parameter in a yaml file
-    basename = os.path.splitext(os.path.basename(args.input))[0]
-    record_analysis_parameters(args.out, basename, trajectory, args.distance_contacts, args.angle_cutoff,
-                               args.proportion_contacts, frames_limits, args.sample.replace(' ', '_'), args.md_time)
+    record_analysis_parameters(args.out, args.sample, trajectory, args.distance_contacts, args.angle_cutoff,
+                               args.proportion_contacts, frames_limits, args.md_time)
 
     # find the Hydrogen bonds
     pattern_contact = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
     data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.angle_cutoff, args.proportion_contacts,
-                                  pattern_contact, args.out, args.sample.replace(' ', '_'), frames_limits)
+                                  pattern_contact, args.out, args.sample, frames_limits)
 
     # write the CSV for the contacts
-    stats = contacts_csv(data_h_bonds, args.out, args.sample.replace(' ', '_'), pattern_contact)
+    stats = contacts_csv(data_h_bonds, args.out, args.sample, pattern_contact)
