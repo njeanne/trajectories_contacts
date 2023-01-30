@@ -45,11 +45,10 @@ The optional parameter used are:
 - `--distance-contacts 3.0`: maximal distance in Angstroms between 2 atoms of different residues.
 - `--angle-cutoff 135`: the minimal angle in a contact between a donor/hydrogen/acceptor.
 - `--md-time`: the molecular dynamics simulation duration.
-- `--sample`: the sample name.
 
 ## Outputs
 
 The script outputs are:
 - a CSV file of the contacts by residue.
 - a YAML file of the parameters used for this analysis. This file will be used for the script that creates the plots.
-- a compressed CSV file of the contacts by frame.
+- a CSV file of the contacts with the median of the distances of the selected frames.
