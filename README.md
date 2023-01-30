@@ -1,6 +1,6 @@
 # Molecular Dynamics Trajectory contacts analysis
 
-From a molecular dynamics trajectory file, the script performs a trajectory analysis to search contacts. The script 
+From molecular dynamics trajectory files, the script performs a trajectory analysis to search contacts. It 
 looks for the hydrogen bonds between the atoms of two different residues. 
 
 An hydrogen bond is defined as A-HD, where A is the acceptor heavy atom, H is the hydrogen and D is the donor heavy 
@@ -9,12 +9,15 @@ A contact is valid if the number of frames (defined by the user with --frames or
 is produced between 2 atoms is greater or equal to the proportion threshold of contacts.
 
 The hydrogen bonds are represented as 2 CSV files:
-   - the contacts by frame (compressed file).
-   - the contacts median distance by residue.
+   - the median of the atoms contacts distances between 2 residues on the selected frames.
+   - the contacts median distance of the atoms contacts between 2 different residues, if more than a couple of atoms are
+   in contacts between the 2 residues the closest one will be selected..
 
 ## Conda environment
 
-A [conda](https://docs.conda.io/projects/conda/en/latest/index.html) YAML environment file is provided: `conda_env/trajectories_env.yml`. The file contains all the dependencies to run the script.
+A [conda](https://docs.conda.io/projects/conda/en/latest/index.html) YAML environment file is provided: 
+`conda_env/trajectories_env.yml`. The file contains all the dependencies to run the script.
+
 The conda environment is generated using the command:
 ```shell script
 # create the environment
