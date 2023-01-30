@@ -302,18 +302,15 @@ def hydrogen_bonds(traj, atoms_dist_thr, angle_cutoff, pct_thr, pattern_hb, out_
         sys.exit(1)
     logging.info(f"\t{nb_used_contacts} inter residues atoms contacts used.")
     ordered_columns = sort_contacts(data_hydrogen_bonds.keys(), pattern_hb)
-    df = pd.DataFrame(data_hydrogen_bonds, index=[0])
-    df = df[ordered_columns]
-    df = df.transpose()
-    df["hydrogen bond"] = df.index
-    cols = df.columns.tolist()
-    cols = cols[-1:] + cols[:-1]
-    df = df[cols]
-    print(df)
+    tmp_df = pd.DataFrame(data_hydrogen_bonds, index=[0])
+    tmp_df = tmp_df[ordered_columns]
+    df = tmp_df.transpose()
+    df = df.reset_index()
+    df.columns = ["hydrogen bonds", "median distances"]
     out_path_bn = os.path.join(out_dir, f"median_h-bond_frames_{out_basename}")
     # write the CSV file
     path_csv = f"{out_path_bn}.csv"
-    df.to_csv(f"{out_path_bn}.csv", index=False, header=["hydogen bonds", "median distance"])
+    df.to_csv(f"{out_path_bn}.csv", index=False, header=["hydrogen bonds", "median distances (\u212B)"])
     logging.info(f"\tMedian contacts on {frames_txt if lim_frames else 'whole frames'} file saved: {path_csv}")
 
     return df
@@ -342,21 +339,21 @@ def contacts_csv(df, out_dir, out_basename, pattern):
             "acceptor residue": [],
             "median distance": []}
 
-    for contact_id in df.columns[1:]:
-        match = pattern.search(contact_id)
+    for _, contact in df.iterrows():
+        match = pattern.search(contact["hydrogen bonds"])
         if match:
-            data["contact"].append(contact_id)
+            data["contact"].append(contact["hydrogen bonds"])
             data["donor position"].append(int(match.group(2)))
             data["acceptor position"].append(int(match.group(5)))
             data["donor residue"].append(match.group(1))
             data["acceptor residue"].append(match.group(4))
         else:
-            data["contact"].append(contact_id)
+            data["contact"].append(contact["hydrogen bonds"])
             data["donor position"].append(f"no match with {pattern.pattern}")
             data["donor residue"].append(f"no match with {pattern.pattern}")
             data["acceptor position"].append(f"no match with {pattern.pattern}")
             data["acceptor_residue"].append(f"no match with {pattern.pattern}")
-        data["median distance"].append(round(statistics.median(df.loc[:, contact_id]), 2))
+        data["median distance"].append(contact["median distances"])
     contacts_stat = pd.DataFrame(data)
     out_path = os.path.join(out_dir, f"contacts_by_residue_{out_basename}.csv")
     contacts_stat.to_csv(out_path, index=False)
@@ -389,6 +386,8 @@ if __name__ == "__main__":
     """
     parser = argparse.ArgumentParser(description=descr, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-o", "--out", required=True, type=str, help="the path to the output directory.")
+    parser.add_argument("-s", "--sample", required=True, type=str,
+                        help="the sample ID used for the files name.")
     parser.add_argument("-t", "--topology", required=True, type=str,
                         help="the path to the molecular dynamics topology file.")
     parser.add_argument("-d", "--distance-contacts", required=False, type=restricted_positive, default=3.0,
@@ -405,8 +404,6 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--proportion-contacts", required=False, type=restricted_float, default=20.0,
                         help="the minimal percentage of frames which make contact between 2 atoms of different "
                              "residues in the selected frame of the molecular dynamics simulation, default is 20%%.")
-    parser.add_argument("-s", "--sample", required=False, type=str,
-                        help="the sample ID. If not used, the input file name will be used.")
     parser.add_argument("-m", "--md-time", required=False, type=str,
                         help="the molecular dynamics simulation time as free text.")
     parser.add_argument("-l", "--log", required=False, type=str,
@@ -455,12 +452,12 @@ if __name__ == "__main__":
     # record the analysis parameter in a yaml file
     basename = os.path.splitext(os.path.basename(args.input))[0]
     record_analysis_parameters(args.out, basename, trajectory, args.distance_contacts, args.angle_cutoff,
-                               args.proportion_contacts, frames_limits, args.sample, args.md_time)
+                               args.proportion_contacts, frames_limits, args.sample.replace(' ', '_'), args.md_time)
 
     # find the Hydrogen bonds
     pattern_contact = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
     data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.angle_cutoff, args.proportion_contacts,
-                                  pattern_contact, args.out, basename, frames_limits)
+                                  pattern_contact, args.out, args.sample.replace(' ', '_'), frames_limits)
 
     # write the CSV for the contacts
-    stats = contacts_csv(data_h_bonds, args.out, basename, pattern_contact)
+    stats = contacts_csv(data_h_bonds, args.out, args.sample.replace(' ', '_'), pattern_contact)
