@@ -10,11 +10,9 @@ __email__ = "jeanne.n@chu-toulouse.fr"
 __version__ = "3.0.0"
 
 import argparse
-import gzip
 import logging
 import os
 import re
-import shutil
 import statistics
 import sys
 import yaml
