@@ -212,21 +212,18 @@ def sort_contacts(contact_names, pattern):
     tmp = {}
     ordered = []
     for contact_name in contact_names:
-        if contact_name == "frames":
-            ordered.append(contact_name)
-        else:
-            match = pattern.search(contact_name)
-            if match:
-                if int(match.group(2)) in tmp:
-                    if int(match.group(5)) in tmp[int(match.group(2))]:
-                        tmp[int(match.group(2))][int(match.group(5))].append(contact_name)
-                    else:
-                        tmp[int(match.group(2))][int(match.group(5))] = [contact_name]
+        match = pattern.search(contact_name)
+        if match:
+            if int(match.group(2)) in tmp:
+                if int(match.group(5)) in tmp[int(match.group(2))]:
+                    tmp[int(match.group(2))][int(match.group(5))].append(contact_name)
                 else:
-                    tmp[int(match.group(2))] = {int(match.group(5)): [contact_name]}
+                    tmp[int(match.group(2))][int(match.group(5))] = [contact_name]
             else:
-                logging.error(f"no match for {pattern.pattern} in {contact_name}")
-                sys.exit(1)
+                tmp[int(match.group(2))] = {int(match.group(5)): [contact_name]}
+        else:
+            logging.error(f"no match for {pattern.pattern} in {contact_name}")
+            sys.exit(1)
 
     for key1 in sorted(tmp):
         for key2 in sorted(tmp[key1]):
@@ -236,21 +233,21 @@ def sort_contacts(contact_names, pattern):
     return ordered
 
 
-def hydrogen_bonds(traj, dist_thr, angle_cutoff, thr, pattern_hb, out_dir, out_basename, lim_frames=None):
+def hydrogen_bonds(traj, atoms_dist_thr, angle_cutoff, pct_thr, pattern_hb, out_dir, out_basename, lim_frames=None):
     """
     Get the hydrogen bonds between the different atoms of the protein during the molecular dynamics simulation.
-    Hydrogen bond is defined as A-H-D, where A is acceptor heavy atom, H is hydrogen, D is donor heavy atom. Hydrogen
-    bond is formed when A to D distance < distance cutoff and A-H-D angle > angle cutoff.
+    Hydrogen bond is defined as A-HD, where A is acceptor heavy atom, H is hydrogen, D is donor heavy atom. Hydrogen
+    bond is formed when A to D distance < distance cutoff and A-HD angle > angle cutoff.
 
     :param traj: the trajectory.
     :type traj: pt.Trajectory
-    :param dist_thr: the threshold atoms distance in Angstroms for contacts.
-    :type dist_thr: float
+    :param atoms_dist_thr: the threshold atoms distance in Angstroms for contacts.
+    :type atoms_dist_thr: float
     :param angle_cutoff: the angle cutoff for the hydrogen bonds.
     :type angle_cutoff: int
-    :param thr: the minimal percentage of contacts for atoms contacts of different residues in the
+    :param pct_thr: the minimal percentage of contacts for atoms contacts of different residues in the
     selected frames.
-    :type thr: float
+    :type pct_thr: float
     :param pattern_hb: the pattern for the hydrogen bond name.
     :type pattern_hb: re.pattern
     :param out_dir: the output directory.
@@ -263,15 +260,19 @@ def hydrogen_bonds(traj, dist_thr, angle_cutoff, thr, pattern_hb, out_dir, out_b
     :rtype: pd.DataFrame
     """
     logging.info("Hydrogen bonds retrieval from the trajectory file, please be patient..")
-    h_bonds = pt.hbond(traj, distance=dist_thr, angle=angle_cutoff)
+    # search hydrogen bonds with distance < atoms distance threshold and angle > angle cut-off. Return the H bonds by
+    # donor-acceptor with a dataset of frames, 0 when the contacts do not pass a threshold, 1 when they pass all the
+    # thresholds, in ex: [0 0 1 0 1 ... 1 0 0 1]
+    h_bonds = pt.hbond(traj, distance=atoms_dist_thr, angle=angle_cutoff)
     nb_total_contacts = len(h_bonds.data) - 1
+    # from the get the distances of of all hydrogen bonds (donors-acceptors) detected
     distances_hbonds = pt.distance(traj, h_bonds.get_amber_mask()[0])
     frames_txt = "the whole frames" if lim_frames is None else f"frames {lim_frames['min']} to {lim_frames['max']}"
     logging.info(f"Search for inter-residues polar contacts in {nb_total_contacts} total polar contacts:")
 
     nb_intra_residue_contacts = 0
-    nb_frames_contacts_2nd_half_thr = 0
-    data_hydrogen_bonds = {"frames": range(traj.n_frames)}
+    nb_frames_contacts_selected_interval = 0
+    data_hydrogen_bonds = {}
     idx = 0
     for h_bond in h_bonds.data:
         if h_bond.key != "total_solute_hbonds":
@@ -281,40 +282,39 @@ def hydrogen_bonds(traj, dist_thr, angle_cutoff, thr, pattern_hb, out_dir, out_b
                     nb_intra_residue_contacts += 1
                     logging.debug(f"\t {h_bond.key}: atoms contact from same residue, contact skipped")
                 else:
-                    # retrieve only the contacts >= percentage threshold of frames in the selected frames
-                    pct_contacts = len(distances_hbonds[idx][distances_hbonds[idx] <= dist_thr]) / len(
+                    # retrieve only the contacts < to the max atoms threshold and having
+                    # a percentage of frames >= percentage threshold in the selected frames
+                    pct_contacts = len(distances_hbonds[idx][distances_hbonds[idx] <= atoms_dist_thr]) / len(
                         distances_hbonds[idx]) * 100
-                    if pct_contacts >= thr:
-                        data_hydrogen_bonds[h_bond.key] = distances_hbonds[idx]
+                    if pct_contacts >= pct_thr:
+                        data_hydrogen_bonds[h_bond.key] = statistics.median(distances_hbonds[idx])
                     else:
-                        nb_frames_contacts_2nd_half_thr += 1
+                        nb_frames_contacts_selected_interval += 1
                         logging.debug(f"\t {h_bond.key}: {pct_contacts:.1f}% of the frames with contacts under the "
-                                      f"threshold of {thr:.1f}% in {frames_txt}, contact skipped.")
+                                      f"threshold of {pct_thr:.1f}% in {frames_txt}, contact skipped.")
             idx += 1
-    nb_used_contacts = nb_total_contacts - nb_intra_residue_contacts - nb_frames_contacts_2nd_half_thr
+    nb_used_contacts = nb_total_contacts - nb_intra_residue_contacts - nb_frames_contacts_selected_interval
     logging.info(f"\t{nb_intra_residue_contacts}/{nb_total_contacts} intra residues atoms contacts discarded.")
-    logging.info(f"\t{nb_frames_contacts_2nd_half_thr}/{nb_total_contacts} inter residues atoms contacts discarded "
-                 f"with number of contacts frames under the threshold of {thr:.1f}% for {frames_txt}.")
+    logging.info(f"\t{nb_frames_contacts_selected_interval}/{nb_total_contacts} inter residues atoms contacts "
+                 f"discarded with number of contacts frames under the threshold of {pct_thr:.1f}% for {frames_txt}.")
     if nb_used_contacts == 0:
         logging.error(f"\t{nb_used_contacts} inter residues atoms contacts remaining, analysis stopped.")
-        sys.exit(0)
+        sys.exit(1)
     logging.info(f"\t{nb_used_contacts} inter residues atoms contacts used.")
     ordered_columns = sort_contacts(data_hydrogen_bonds.keys(), pattern_hb)
-    df = pd.DataFrame(data_hydrogen_bonds)
+    df = pd.DataFrame(data_hydrogen_bonds, index=[0])
     df = df[ordered_columns]
-    if lim_frames:
-        df["frames"] = [x + lim_frames["min"] for x in list(df["frames"])]
-    out_path_bn = os.path.join(out_dir, f"contacts_by_frame_{out_basename}")
+    df = df.transpose()
+    df["hydrogen bond"] = df.index
+    cols = df.columns.tolist()
+    cols = cols[-1:] + cols[:-1]
+    df = df[cols]
+    print(df)
+    out_path_bn = os.path.join(out_dir, f"median_h-bond_frames_{out_basename}")
     # write the CSV file
     path_csv = f"{out_path_bn}.csv"
-    df.to_csv(f"{out_path_bn}.csv", index=False)
-    # compress the CSV file
-    path_compressed = f"{out_path_bn}.gz"
-    with open(path_csv, 'rb') as file_handler_in:
-        with gzip.open(path_compressed, 'wb') as file_handler_out:
-            shutil.copyfileobj(file_handler_in, file_handler_out)
-    os.remove(path_csv)
-    logging.info(f"\tContacts by frame file saved: {path_compressed}")
+    df.to_csv(f"{out_path_bn}.csv", index=False, header=["hydogen bonds", "median distance"])
+    logging.info(f"\tMedian contacts on {frames_txt if lim_frames else 'whole frames'} file saved: {path_csv}")
 
     return df
 
