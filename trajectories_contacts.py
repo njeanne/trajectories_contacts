@@ -98,27 +98,26 @@ def create_log(path, level):
     return logging
 
 
-def check_limits(frames):
+def check_limits(value_arg):
     """Check if the selected frames are valid.
 
-    :param frames: the limits of the frames to use.
-    :type frames: str
+    :param value_arg: the limits of the frames to use.
+    :type value_arg: str
     :raises ArgumentTypeError: values not in the fixed limits.
     :return: the frames limits.
     :rtype: dict
     """
-    frames_lim = None
     pattern = re.compile("(\\d+)-(\\d+)")
-    if frames:
-        frames_lim = {}
-        match = pattern.search(frames)
-        if match:
-            frames_lim["min"] = int(match.group(1))
-            frames_lim["max"] = int(match.group(2))
-        else:
-            raise argparse.ArgumentTypeError(f"--frames {frames} is not a valid format, valid format should be: "
-                                             f"--frames <DIGITS>-<DIGITS>")
-    return frames_lim
+    match = pattern.search(value_arg)
+    if match:
+        lims = {"min": int(match.group(1)), "max": int(match.group(2))}
+        if lims["min"] >= lims["max"]:
+            raise argparse.ArgumentTypeError(f"--frames {value_arg} : minimum value {lims['min']} is > or = to "
+                                             f"maximum value {lims['max']}")
+    else:
+        raise argparse.ArgumentTypeError(f"--frames {value_arg} is not a valid format, valid format should be: "
+                                         f"--frames <DIGITS>-<DIGITS>")
+    return lims
 
 
 def load_trajectories(trajectory_files, topology_file, frames=None):
@@ -129,8 +128,8 @@ def load_trajectories(trajectory_files, topology_file, frames=None):
     :type trajectory_files: list
     :param topology_file: the topology file path.
     :type topology_file: str
-    :param frames: the frames to use.
-    :type frames: str
+    :param frames: the frames to use, start and end.
+    :type frames: dict
     :return: the loaded trajectory.
     :rtype: pt.Trajectory
     """
@@ -138,10 +137,11 @@ def load_trajectories(trajectory_files, topology_file, frames=None):
     traj = pt.iterload(trajectory_files, top=topology_file)
     logging.info(f"\tTotal trajectories frames:\t{traj.n_frames}")
     if frames:
-        frames_split = frames.split("-")
-        frame_indices = range(int(frames_split[0]), int(frames_split[1]))
-        traj = traj[frame_indices]
-        logging.info(f"\tSelected frames:\t\t{frame_indices[0]} to {frame_indices[-1] + 1}")
+        if frames and frames["max"] > traj.n_frames:
+            raise IndexError(f"Selected upper frame limit for RMS computation ({frames['max']}) from --frames argument "
+                             f"is greater than the total frames number ({traj.n_frames}) of the MD trajectory.")
+        traj = traj[range(frames["min"], frames["max"])]
+        logging.info(f"\tSelected frames:\t\t{frames['min']} to {frames['max']}")
     else:
         logging.info(f"\tSelected frames:\t\t1 to {traj.n_frames}")
     logging.info(f"\tUsed frames:\t\t\t{traj.n_frames}")
@@ -430,7 +430,7 @@ if __name__ == "__main__":
 
     # load the trajectory
     try:
-        trajectory = load_trajectories(args.inputs, args.topology, args.frames)
+        trajectory = load_trajectories(args.inputs, args.topology, frames_limits)
     except RuntimeError as exc:
         logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({', '.join(args.inputs)}) files "
                       f"exists", exc_info=True)
@@ -438,6 +438,9 @@ if __name__ == "__main__":
     except ValueError as exc:
         logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({', '.join(args.inputs)}) files "
                       f"exists.", exc_info=True)
+        sys.exit(1)
+    except IndexError as exc:
+        logging.error(exc, exc_info=True)
         sys.exit(1)
 
     # record the analysis parameter in a yaml file
