@@ -1,6 +1,6 @@
 # Molecular Dynamics Trajectory contacts analysis
 
-From molecular dynamics trajectory files, the script performs a trajectory analysis to search contacts. It 
+From molecular dynamics trajectory files (*.nc), the script performs a trajectory analysis to search contacts. It 
 looks for the hydrogen bonds between the atoms of two different residues. 
 
 An hydrogen bond is defined as A-HD, where A is the acceptor heavy atom, H is the hydrogen and D is the donor heavy 

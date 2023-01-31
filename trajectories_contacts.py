@@ -363,8 +363,8 @@ if __name__ == "__main__":
 
     Distributed on an "AS IS" basis without warranties or conditions of any kind, either express or implied.
 
-    From a molecular dynamics trajectories files, the script performs a trajectory analysis to search contacts. The 
-    script looks for the hydrogen bonds between the atoms of two different residues. 
+    From molecular dynamics trajectories files (*.nc), the script performs a trajectory analysis to search contacts. 
+    It looks for the hydrogen bonds between the atoms of two different residues. 
 
     An hydrogen bond is defined as A-HD, where A is the acceptor heavy atom, H is the hydrogen and D is the donor heavy 
     atom. An hydrogen bond is formed when A to D distance < distance cutoff and A-H-D angle > angle cutoff.
