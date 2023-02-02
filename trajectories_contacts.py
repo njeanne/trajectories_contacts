@@ -134,20 +134,25 @@ def load_trajectories(trajectory_files, topology_file, frames=None):
     :rtype: pt.Trajectory
     """
     logging.info("Loading trajectory files, please be patient..")
-    traj = pt.iterload(trajectory_files, top=topology_file)
-    logging.info(f"\tTotal trajectories frames:\t{traj.n_frames}")
+    traj = pt.iterload(trajectory_files, top=topology_file, )
+    logging.info(f"\tTotal trajectories memory size:\t\t{round(traj._estimated_GB, 6)} GB")
+    logging.info(f"\tTotal trajectories frames:\t\t{traj.n_frames}")
     if frames:
         if frames and frames["max"] > traj.n_frames:
             raise IndexError(f"Selected upper frame limit for RMS computation ({frames['max']}) from --frames argument "
                              f"is greater than the total frames number ({traj.n_frames}) of the MD trajectory.")
+        frames_range = range(frames["min"], frames["max"])
+        if frames["min"] == 1:
+            frames_range[0] = 0
         traj = traj[range(frames["min"], frames["max"])]
-        logging.info(f"\tSelected frames:\t\t{frames['min']} to {frames['max']}")
+        logging.info(f"\tSelected frames:\t\t\t{frames['min']} to {frames['max']}")
+        logging.info(f"\tSelected frames memory size:\t\t{round(traj._estimated_GB, 6)} GB")
     else:
-        logging.info(f"\tSelected frames:\t\t1 to {traj.n_frames}")
-    logging.info(f"\tUsed frames:\t\t\t{traj.n_frames}")
-    logging.info(f"\tMolecules:\t\t\t{traj.topology.n_mols}")
-    logging.info(f"\tResidues:\t\t\t{traj.topology.n_residues}")
-    logging.info(f"\tAtoms:\t\t\t\t{traj.topology.n_atoms}")
+        logging.info(f"\tSelected frames:\t\t\t1 to {traj.n_frames}")
+    logging.info(f"\tUsed frames:\t\t\t\t{traj.n_frames}")
+    logging.info(f"\tMolecules:\t\t\t\t{traj.topology.n_mols}")
+    logging.info(f"\tResidues:\t\t\t\t{traj.topology.n_residues}")
+    logging.info(f"\tAtoms:\t\t\t\t\t{traj.topology.n_atoms}")
     return traj
 
 
@@ -254,7 +259,7 @@ def hydrogen_bonds(traj, atoms_dist_thr, angle_cutoff, pct_thr, pattern_hb, out_
     # search hydrogen bonds with distance < atoms distance threshold and angle > angle cut-off. Return the H bonds by
     # donor-acceptor with a dataset of frames, 0 when the contacts do not pass a threshold, 1 when they pass all the
     # thresholds, in ex: [0 0 1 0 1 ... 1 0 0 1]
-    h_bonds = pt.hbond(traj, distance=atoms_dist_thr, angle=angle_cutoff)
+    h_bonds = pt.search_hbonds(traj, distance=atoms_dist_thr, angle=angle_cutoff)
     nb_total_contacts = len(h_bonds.data) - 1
     # from the get the distances of of all hydrogen bonds (donors-acceptors) detected
     distances_hbonds = pt.distance(traj, h_bonds.get_amber_mask()[0])
