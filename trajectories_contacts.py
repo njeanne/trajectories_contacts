@@ -10,11 +10,10 @@ __email__ = "jeanne.n@chu-toulouse.fr"
 __version__ = "3.0.0"
 
 import argparse
-import gzip
 import logging
+import numpy as np
 import os
 import re
-import shutil
 import statistics
 import sys
 import yaml
@@ -132,7 +131,7 @@ def load_trajectories(trajectory_files, topology_file, frames=None):
     :param topology_file: the topology file path.
     :type topology_file: str
     :param frames: the frames to use.
-    :type frames: str
+    :type frames: dict
     :return: the loaded trajectory.
     :rtype: pt.Trajectory
     """
@@ -140,10 +139,8 @@ def load_trajectories(trajectory_files, topology_file, frames=None):
     traj = pt.iterload(trajectory_files, top=topology_file)
     logging.info(f"\tTotal trajectories frames:\t{traj.n_frames}")
     if frames:
-        frames_split = frames.split("-")
-        frame_indices = range(int(frames_split[0]), int(frames_split[1]))
-        traj = traj[frame_indices]
-        logging.info(f"\tSelected frames:\t\t{frame_indices[0]} to {frame_indices[-1] + 1}")
+        traj = traj[range(frames["min"], frames["max"])]
+        logging.info(f"\tSelected frames:\t\t{frames['min']} to {frames['max']}")
     else:
         logging.info(f"\tSelected frames:\t\t1 to {traj.n_frames}")
     logging.info(f"\tUsed frames:\t\t\t{traj.n_frames}")
@@ -151,6 +148,25 @@ def load_trajectories(trajectory_files, topology_file, frames=None):
     logging.info(f"\tResidues:\t\t\t{traj.topology.n_residues}")
     logging.info(f"\tAtoms:\t\t\t\t{traj.topology.n_atoms}")
     return traj
+
+
+def check_chunk_size(chunk, n_frames):
+    """
+    Modify the number of frames on which each step of the hydrogen bonds will be performed by each chunk in the case
+    that the chunk size is greater than the number of frames of the trajectory.
+
+    :param chunk: the chunk representing the number of frames selected by the user.
+    :type chunk: int
+    :param n_frames: the number of studied frames.
+    :type n_frames: int
+    :return: the chunk size modified if necessary
+    :rtype: int
+    """
+    if chunk > n_frames:
+        logging.warning(f"chunk size of {chunk} frames for hydrogen bonds search is greater than the {n_frames} frames "
+                        f"of the trajectory , the chunk size is adjusted to {n_frames} frames.")
+        chunk = n_frames
+    return chunk
 
 
 def record_analysis_parameters(out_dir, smp, traj, distance_contacts, angle_cutoff, proportion_contacts, frames_lim,
@@ -191,13 +207,124 @@ def record_analysis_parameters(out_dir, smp, traj, distance_contacts, angle_cuto
     logging.info(f"Analysis parameters recorded: {out}")
 
 
+def chunk_hbonds_distance(inspected_traj, atoms_dist, angle, steps):
+    """
+    Using chunks of the trajectory to save memory, extract the hydrogen bonds and add the distances values.
+
+    :param inspected_traj: the trajectory.
+    :type inspected_traj: pytraj.Trajectory
+    :param atoms_dist: the threshold atoms distance in Angstroms for contacts.
+    :type atoms_dist: float
+    :param angle: the angle cutoff for the hydrogen bonds.
+    :type angle: int
+    :param steps: the step for each chunk.
+    :type: int
+    :return: the whole hydrogen bonds data.
+    :rtype: dict
+    """
+    start_frame = 0
+    data = {}
+    # set the steps and check the case only one frame remains for the last step
+    if steps == inspected_traj.n_frames:
+        chunk_steps = [inspected_traj.n_frames]
+    else:
+        chunk_steps = list(range(steps - 1, inspected_traj.n_frames, steps))
+        # add the last frame of the trajectory if the last range value do not correspond to the last frame, i.e:
+        # 7 frames with a chunk of 2, the range produced is [2, 4, 6], we need to add 7 -> [2, 4, 6, 7]
+        if chunk_steps[-1] < inspected_traj.n_frames - 1:
+            chunk_steps.append(inspected_traj.n_frames - 1)
+    # get all the hydrogen bonds
+    for chunk_step in chunk_steps:
+        logging.info(f"\tChunk on frames index {start_frame} to {chunk_step}.")
+        frames_chunk = range(start_frame, chunk_step) if start_frame != chunk_step else [start_frame]
+        # search hydrogen bonds with distance < atoms distance threshold and angle > angle cut-off.
+        logging.debug(f"\t\tSearch for hydrogen bonds:")
+        chunk_h_bonds = pt.search_hbonds(inspected_traj, distance=atoms_dist, angle=angle, frame_indices=frames_chunk)
+        logging.debug(f"\t\t\t{len(chunk_h_bonds.donor_acceptor)} hydrogen bonds found.")
+        # get the distances in the chunk
+        logging.debug(f"\t\tGet the contacts distances in the chunk frames for the hydrogen bonds found.")
+        chunk_distances = pt.distance(inspected_traj, chunk_h_bonds.get_amber_mask()[0], frame_indices=frames_chunk)
+        # record the distances of all hydrogen bonds (donors-acceptors) detected in the chunk
+        for idx in range(len(chunk_h_bonds.donor_acceptor)):
+            donor_acceptor = chunk_h_bonds.donor_acceptor[idx]
+            # filter the whole frames distances for this contact on the atoms contact distance threshold
+            filtered_distances = chunk_distances[idx][chunk_distances[idx] <= atoms_dist]
+            print(f"{donor_acceptor}:\t{len(chunk_distances[idx])} {len(filtered_distances)}")
+            if donor_acceptor in data:
+                data[donor_acceptor] = np.concatenate((data[donor_acceptor], filtered_distances))
+            else:
+                data[donor_acceptor] = filtered_distances
+            np.set_printoptions(threshold=sys.maxsize)
+        start_frame = chunk_step + 1
+
+    logging.info(f"\t{len(data)} hydrogen bonds found.")
+    return data
+
+
+def filter_hbonds(raw_data, pattern, nb_selected_frames, percent_thr, txt_frames_selection):
+    """
+    Filter the hydrogen that not belongs to the same residue and which the number of frames where a hydrogen bond is
+    formed (which residues atoms distance of contact is less than the distance threshold) is greater than the
+    proportion threshold.
+
+    :param raw_data: the whole hydrogen bonds data
+    :type raw_data: dict
+    :param pattern: the pattern to extract the residues positions of the atoms contacts.
+    :type pattern: re.pattern
+    :param nb_selected_frames: the number of selected frames for the analysis.
+    :type nb_selected_frames: int
+    :param percent_thr: the minimal percentage of contacts for atoms contacts of different residues in the selected
+    frames.
+    :type percent_thr: float
+    :param txt_frames_selection: the description of the used frames.
+    :type txt_frames_selection: str
+    :return: the filtered hydrogen bonds.
+    :rtype: dict
+    """
+    data = {}
+    intra_residue_contacts = 0
+    inter_residue_contacts_failed_thr = 0
+    for donor_acceptor in raw_data:
+        match = pattern.search(donor_acceptor)
+        if match:
+            if match.group(2) == match.group(5):
+                intra_residue_contacts += 1
+                logging.debug(f"\t[REJECTED INTRA] {donor_acceptor}: H bond between the atoms of the same residue.")
+            else:
+                # retrieve only the contacts < to the max atoms threshold and having a percentage of
+                # frames >= percentage threshold in the selected frames
+                pct_contacts = len(raw_data[donor_acceptor]) / nb_selected_frames * 100
+                if pct_contacts >= percent_thr:
+                    data[donor_acceptor] = statistics.median(raw_data[donor_acceptor])
+                    logging.debug(f"\t[VALID {len(data)}] {donor_acceptor}: median atoms distance "
+                                  f"{round(data[donor_acceptor], 2)} \u212B, proportion of valid frames "
+                                  f"{pct_contacts:.1f}% ({len(raw_data[donor_acceptor])}/{nb_selected_frames} frames "
+                                  f"with H bonds).")
+                else:
+                    inter_residue_contacts_failed_thr += 1
+                    logging.debug(f"\t[REJECTED PERCENTAGE] {donor_acceptor}: frames with H bonds {pct_contacts:.1f}% "
+                                  f"< {percent_thr:.1f}% threshold "
+                                  f"({len(raw_data[donor_acceptor])}/{nb_selected_frames} frames with H bonds).")
+    nb_used_contacts = len(raw_data) - intra_residue_contacts - inter_residue_contacts_failed_thr
+    logging.info(f"\t{intra_residue_contacts}/{len(raw_data)} hydrogen bonds with intra residues atoms contacts "
+                 f"discarded.")
+    logging.info(f"\t{inter_residue_contacts_failed_thr}/{len(raw_data)} hydrogen bonds with inter residues atoms "
+                 f"contacts discarded: contacts frames under the threshold of {percent_thr:.1f}% for "
+                 f"{txt_frames_selection}.")
+    if nb_used_contacts == 0:
+        logging.error(f"\t{nb_used_contacts} inter residues atoms contacts remaining, analysis stopped.")
+        sys.exit(1)
+    logging.info(f"\t{nb_used_contacts} inter residues atoms contacts used.")
+    return data
+
+
 def sort_contacts(contact_names, pattern):
     """
     Get the order of the contacts on the first residue then on the second one.
 
     :param contact_names: the contacts identifiers.
     :type contact_names: KeysView[Union[str, Any]]
-    :param pattern: the regex pattern to extract the residues positions of the atoms contacts.
+    :param pattern: the pattern to extract the residues positions of the atoms contacts.
     :type pattern: re.pattern
     :return: the ordered list of contacts.
     :rtype: list
@@ -226,76 +353,38 @@ def sort_contacts(contact_names, pattern):
     return ordered
 
 
-def hydrogen_bonds(traj, atoms_dist_thr, angle_cutoff, pct_thr, pattern_hb, out_dir, smp, lim_frames=None):
+def search_hydrogen_bonds(traj, atoms_cutoff, angle_cutoff, out_dir, smp, pct_thr, pattern_hb, chunk, lim_frames=None):
     """
     Get the hydrogen bonds between the different atoms of the protein during the molecular dynamics simulation.
     Hydrogen bond is defined as A-HD, where A is acceptor heavy atom, H is hydrogen, D is donor heavy atom. Hydrogen
     bond is formed when A to D distance < distance cutoff and A-HD angle > angle cutoff.
 
     :param traj: the trajectory.
-    :type traj: pt.Trajectory
-    :param atoms_dist_thr: the threshold atoms distance in Angstroms for contacts.
-    :type atoms_dist_thr: float
+    :type traj: pytraj.Trajectory
+    :param atoms_cutoff: the threshold atoms distance in Angstroms for contacts.
+    :type atoms_cutoff: float
     :param angle_cutoff: the angle cutoff for the hydrogen bonds.
     :type angle_cutoff: int
-    :param pct_thr: the minimal percentage of contacts for atoms contacts of different residues in the
-    selected frames.
-    :type pct_thr: float
-    :param pattern_hb: the pattern for the hydrogen bond name.
-    :type pattern_hb: re.pattern
     :param out_dir: the output directory.
     :type out_dir: str
     :param smp: the sample name.
     :type smp: str
+    :param pct_thr: the minimal percentage of contacts for atoms contacts of different residues in the selected frames.
+    :type pct_thr: float
+    :param pattern_hb: the pattern for the hydrogen bond name.
+    :type pattern_hb: re.pattern
     :param lim_frames: the frames selected by the user.
     :type lim_frames: dict
     :return: the dataframe of the polar contacts.
     :rtype: pd.DataFrame
     """
     logging.info("Hydrogen bonds retrieval from the trajectories files, please be patient..")
-    # search hydrogen bonds with distance < atoms distance threshold and angle > angle cut-off. Return the H bonds by
-    # donor-acceptor with a dataset of frames, 0 when the contacts do not pass a threshold, 1 when they pass all the
-    # thresholds, in ex: [0 0 1 0 1 ... 1 0 0 1]
-    h_bonds = pt.hbond(traj, distance=atoms_dist_thr, angle=angle_cutoff)
-    nb_total_contacts = len(h_bonds.data) - 1
-    # from the get the distances of of all hydrogen bonds (donors-acceptors) detected
-    distances_hbonds = pt.distance(traj, h_bonds.get_amber_mask()[0])
+    raw_hbonds = chunk_hbonds_distance(traj, atoms_cutoff, angle_cutoff, steps=chunk)
+    logging.info("Filter the hydrogen bonds:")
     frames_txt = "the whole frames" if lim_frames is None else f"frames {lim_frames['min']} to {lim_frames['max']}"
-    logging.info(f"Search for inter-residues polar contacts in {nb_total_contacts} total polar contacts:")
-
-    nb_intra_residue_contacts = 0
-    nb_frames_contacts_selected_interval = 0
-    data_hydrogen_bonds = {}
-    idx = 0
-    for h_bond in h_bonds.data:
-        if h_bond.key != "total_solute_hbonds":
-            match = pattern_hb.search(h_bond.key)
-            if match:
-                if match.group(2) == match.group(5):
-                    nb_intra_residue_contacts += 1
-                    logging.debug(f"\t {h_bond.key}: atoms contact from same residue, contact skipped")
-                else:
-                    # retrieve only the contacts < to the max atoms threshold and having
-                    # a percentage of frames >= percentage threshold in the selected frames
-                    pct_contacts = len(distances_hbonds[idx][distances_hbonds[idx] <= atoms_dist_thr]) / len(
-                        distances_hbonds[idx]) * 100
-                    if pct_contacts >= pct_thr:
-                        data_hydrogen_bonds[h_bond.key] = statistics.median(distances_hbonds[idx])
-                    else:
-                        nb_frames_contacts_selected_interval += 1
-                        logging.debug(f"\t {h_bond.key}: {pct_contacts:.1f}% of the frames with contacts under the "
-                                      f"threshold of {pct_thr:.1f}% in {frames_txt}, contact skipped.")
-            idx += 1
-    nb_used_contacts = nb_total_contacts - nb_intra_residue_contacts - nb_frames_contacts_selected_interval
-    logging.info(f"\t{nb_intra_residue_contacts}/{nb_total_contacts} intra residues atoms contacts discarded.")
-    logging.info(f"\t{nb_frames_contacts_selected_interval}/{nb_total_contacts} inter residues atoms contacts "
-                 f"discarded with number of contacts frames under the threshold of {pct_thr:.1f}% for {frames_txt}.")
-    if nb_used_contacts == 0:
-        logging.error(f"\t{nb_used_contacts} inter residues atoms contacts remaining, analysis stopped.")
-        sys.exit(1)
-    logging.info(f"\t{nb_used_contacts} inter residues atoms contacts used.")
-    ordered_columns = sort_contacts(data_hydrogen_bonds.keys(), pattern_hb)
-    tmp_df = pd.DataFrame(data_hydrogen_bonds, index=[0])
+    filtered_hbonds = filter_hbonds(raw_hbonds, pattern_hb, traj.n_frames, pct_thr, frames_txt)
+    ordered_columns = sort_contacts(filtered_hbonds, pattern_hb)
+    tmp_df = pd.DataFrame(filtered_hbonds, index=[0])
     tmp_df = tmp_df[ordered_columns]
     df = tmp_df.transpose()
     df = df.reset_index()
@@ -394,6 +483,12 @@ if __name__ == "__main__":
     parser.add_argument("-x", "--frames", required=False, type=str,
                         help="the frames to load from the trajectory, the format must be two integers separated by "
                              "an hyphen, i.e to load the trajectory from the frame 500 to 2000: --frames 500-2000")
+    parser.add_argument("-c", "--chunk", required=False, type=int, default=1000,
+                        help="to save memory, the chunk size of the trajectory frames on which a search for hydrogen "
+                             "bonds will be performed. The chunk size must be less than the difference of max selected "
+                             "frame and min of the selected frame if the argument --frame is used or the total of "
+                             "frames if this argument is not used. Otherwise, the chunk will be reduced to the total of"
+                             "frames of the trajectory and only one chunk will be produced.")
     parser.add_argument("-p", "--proportion-contacts", required=False, type=restricted_float, default=20.0,
                         help="the minimal percentage of frames which make contact between 2 atoms of different "
                              "residues in the selected frame of the molecular dynamics simulation, default is 20%%.")
@@ -432,7 +527,7 @@ if __name__ == "__main__":
 
     # load the trajectory
     try:
-        trajectory = load_trajectories(args.inputs, args.topology, args.frames)
+        trajectory = load_trajectories(args.inputs, args.topology, frames_limits)
     except RuntimeError as exc:
         logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({', '.join(args.inputs)}) files "
                       f"exists", exc_info=True)
@@ -442,14 +537,17 @@ if __name__ == "__main__":
                       f"exists.", exc_info=True)
         sys.exit(1)
 
+    # check if the chunk size is less than the number of frames of the trajectory
+    chunk_size = check_chunk_size(args.chunk, trajectory.n_frames)
+
     # record the analysis parameter in a yaml file
     record_analysis_parameters(args.out, args.sample, trajectory, args.distance_contacts, args.angle_cutoff,
                                args.proportion_contacts, frames_limits, args.md_time)
 
     # find the Hydrogen bonds
     pattern_contact = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
-    data_h_bonds = hydrogen_bonds(trajectory, args.distance_contacts, args.angle_cutoff, args.proportion_contacts,
-                                  pattern_contact, args.out, args.sample, frames_limits)
+    hydrogen_bonds = search_hydrogen_bonds(trajectory, args.distance_contacts, args.angle_cutoff, args.out, args.sample,
+                                           args.proportion_contacts, pattern_contact, chunk_size, frames_limits)
 
     # write the CSV for the contacts
-    stats = contacts_csv(data_h_bonds, args.out, args.sample, pattern_contact)
+    stats = contacts_csv(hydrogen_bonds, args.out, args.sample, pattern_contact)
