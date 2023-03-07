@@ -2,3 +2,4 @@
 results
 __pycache__
 conda/__pycache__
+sbatch_*
