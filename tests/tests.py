@@ -41,10 +41,8 @@ class TestTrajectories(unittest.TestCase):
         self.sample = "test"
         self.md_time = "0 ns"
         self.pattern_contact = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
-        self.frames = check_limits("10-20")
-        self.traj = load_trajectories([os.path.join(TEST_DIR_INPUTS, "test_data_20-frames.nc")],
-                                      os.path.join(TEST_DIR_INPUTS, "test_data.parm"),
-                                      self.frames)
+        self.traj = load_trajectory([os.path.join(TEST_DIR_INPUTS, "test_data_20-frames.nc")],
+                                    os.path.join(TEST_DIR_INPUTS, "test_data.parm"))
         with open(os.path.join(TEST_DIR_EXPECTED, "test_analysis_parameters.yaml"), "r") as file_handler:
             self.parameters = yaml.safe_load(file_handler.read())
         # self.contacts = format_csv(os.path.join(TEST_FILES_DIR,
@@ -54,15 +52,9 @@ class TestTrajectories(unittest.TestCase):
         # Clean temporary files
         shutil.rmtree(self.tmp_dir)
 
-    def test_limits(self):
-        self.assertEqual(check_limits("10-20"), self.frames)
-        self.assertNotEqual(check_limits("0-20"), self.frames)
-        self.assertRaises(argparse.ArgumentTypeError, check_limits, ":10to20")
-
-    def test_load_trajectories(self):
-        traj = load_trajectories([os.path.join(TEST_DIR, "test_files", "test_data_20-frames.nc")],
-                                 os.path.join(TEST_DIR, "test_files", "test_data.parm"),
-                                 self.frames)
+    def test_load_trajectory(self):
+        traj = load_trajectory([os.path.join(TEST_DIR, "test_files", "test_data_20-frames.nc")],
+                               os.path.join(TEST_DIR, "test_files", "test_data.parm"))
         self.assertEqual(traj.n_frames, 10)
 
     def test_check_chunk_size(self):
@@ -71,8 +63,8 @@ class TestTrajectories(unittest.TestCase):
 
     def test_record_analysis_parameters(self):
         observed_path = os.path.join(self.tmp_dir, os.path.join(f"{self.sample}_analysis_parameters.yaml"))
-        record_analysis_parameters(self.tmp_dir, self.sample, self.traj, self.dist_cutoff, self.angle_cutoff,
-                                   self.pct_cutoff, self.frames, self.md_time)
+        record_analysis_yaml(self.tmp_dir, self.sample, self.traj, self.dist_cutoff, self.angle_cutoff,
+                             self.pct_cutoff, self.frames, self.md_time)
         with open(observed_path, "r") as file_handler:
             observed = yaml.safe_load(file_handler.read())
             self.assertEqual(observed, self.parameters)
