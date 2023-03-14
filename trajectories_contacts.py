@@ -100,6 +100,42 @@ def create_log(path, level):
     return logging
 
 
+def parse_frames(frames_selections, traj_files_paths):
+    """
+    Parse the frames selection by trajectory file.
+
+    :param frames_selections: the frames selection by trajectory file.
+    :type frames_selections: str
+    :param traj_files_paths: the trajectory files paths.
+    :type traj_files_paths: list
+    :return: the selected frames by trajectory file.
+    :rtype: dict
+    """
+    data = {}
+    pattern = re.compile("(.+):(\\d+)-(\\d+)")
+
+    if frames_selections:
+        traj_basenames = [os.path.basename(traj_files_path) for traj_files_path in traj_files_paths]
+        for frames_sel in frames_selections.split(","):
+            match = pattern.search(frames_sel)
+            if match:
+                current_traj = match.group(1)
+                start = match.group(2)
+                end = match.group(3)
+                if current_traj not in traj_basenames:
+                    raise argparse.ArgumentTypeError(f"The trajectory file {current_traj} in frame selection part "
+                                                     f"'{frames_sel}' is not a file belonging to the inputs trajectory "
+                                                     f"files: {','.join(traj_basenames)}")
+                data[current_traj] = {"start": start, "end": end}
+            else:
+                raise argparse.ArgumentTypeError(f"The frame selection part '{frames_sel}' do not match the correct "
+                                                 f"pattern {pattern.pattern}'")
+        logging.info("Frames selection on input trajectory files:")
+        for current_traj in data:
+            logging.info(f"\t{current_traj}: frames selection from {start} to {end}.")
+    return data
+
+
 def resume_or_initialize_analysis(trajectory_files, smp, distance_contacts, angle_cutoff, proportion_contacts, sim_time,
                                   resume_path):
     """
@@ -376,7 +412,7 @@ def filter_hbonds(analysis_data, pattern):
     logging.info(f"\t{intra_residue_contacts}/{len(analysis_data['H bonds'])} hydrogen bonds with intra residues "
                  f"atoms contacts discarded.")
     logging.info(f"\t{inter_residue_contacts_failed_thr}/{len(analysis_data['H bonds'])} hydrogen bonds with inter "
-                 f"residues atoms contacts discarded: contacts frames under the threshold of "
+                 f"residues atoms contacts discarded with contacts frames proportion under the threshold of "
                  f"{analysis_data['parameters']['proportion contacts']:.1f}%.")
     if nb_used_contacts == 0:
         logging.error(f"\t{nb_used_contacts} inter residues atoms contacts remaining, analysis stopped.")
@@ -486,13 +522,18 @@ if __name__ == "__main__":
                         help="the path to the molecular dynamics topology file.")
     parser.add_argument("-n", "--nanoseconds", required=True, type=int,
                         help="the molecular dynamics simulation time in nano seconds.")
+    parser.add_argument("-f", "--frames", required=False, type=str,
+                        help="the frames selection by trajectory file. The arguments should be <TRAJ_FILE>:100-1000. "
+                             "If the <TRAJ_FILE> contains 1000 frames, only the frames from 100-1000 will be selected."
+                             "Multiple frames selections can be performed with comma separators, i.e: "
+                             "'<TRAJ_FILE_1>:100-1000,<TRAJ_FILE_2>:1-500'")
     parser.add_argument("-d", "--distance-contacts", required=False, type=restricted_positive, default=3.0,
                         help="An hydrogen bond is defined as A-HD, where A is acceptor heavy atom, H is hydrogen, D is "
-                             "donor heavy atom. An hydrogen bond is formed when A to D distance < distance. "
-                             "Default is 3.0 Angstroms.")
+                             "donor heavy atom. An hydrogen bond is formed when A to D distance < distance. Default is "
+                             "3.0 Angstroms.")
     parser.add_argument("-a", "--angle-cutoff", required=False, type=restricted_angle, default=135,
                         help="Hydrogen bond is defined as A-HD, where A is acceptor heavy atom, H is hydrogen, D is "
-                             "donor heavy atom. One condition to form an hydrogen bond is A-H-D angle > angle cutoff. "
+                             "donor heavy atom. One condition to form an hydrogen bond is A-H-D angle > angle cut-off. "
                              "Default is 135 degrees.")
     parser.add_argument("-c", "--chunk", required=False, type=int, default=1000,
                         help="to save memory, the chunk size of the trajectory frames on which a search for hydrogen "
@@ -526,9 +567,15 @@ if __name__ == "__main__":
 
     logging.info(f"version: {__version__}")
     logging.info(f"CMD: {' '.join(sys.argv)}")
-    logging.info(f"Atoms maximal contacts distance threshold: {args.distance_contacts} \u212B")
-    logging.info(f"Minimal proportion of frames with atoms contacts between two different residues in the selected "
-                 f"frames of the molecular dynamics: {args.proportion_contacts:.1f}%")
+    logging.info(f"Atoms maximal contacts distance threshold: {args.distance_contacts:>7} \u212B")
+    logging.info(f"Angle minimal cut-off: {args.angle_cutoff:>27}°")
+    logging.info(f"Minimal frames proportion with atoms contacts: {args.proportion_contacts:.1f}%")
+
+    try:
+        frames_selection = parse_frames(args.frames, args.inputs)
+    except argparse.ArgumentTypeError as ex:
+        logging.error(ex, exc_info=True)
+        sys.exit(1)
 
     data_traj = resume_or_initialize_analysis(args.inputs, args.sample, args.distance_contacts, args.angle_cutoff,
                                               args.proportion_contacts, args.nanoseconds, args.resume)
