@@ -34,17 +34,20 @@ class TestTrajectories(unittest.TestCase):
         system_tmp_dir = tempfile.gettempdir()
         self.tmp_dir = os.path.join(system_tmp_dir, "tmp_tests_trajectories_contacts")
         os.makedirs(self.tmp_dir, exist_ok=True)
-        self.chunk = 3
         self.dist_cutoff = 3.0
         self.angle_cutoff = 135
         self.pct_cutoff = 50.0
         self.sample = "test"
-        self.md_time = "0 ns"
+        self.nanoseconds = 1
+        self.frames = "test_data_20-frames.nc:5-20"
+        self.parsed_frames = {'test_data_20-frames.nc': {'begin': 5, 'end': 20}}
         self.pattern_contact = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
-        self.traj = load_trajectory([os.path.join(TEST_DIR_INPUTS, "test_data_20-frames.nc")],
-                                    os.path.join(TEST_DIR_INPUTS, "test_data.parm"))
-        with open(os.path.join(TEST_DIR_EXPECTED, "test_analysis_parameters.yaml"), "r") as file_handler:
-            self.parameters = yaml.safe_load(file_handler.read())
+        self.inputs = [os.path.join(TEST_DIR_INPUTS, "test_data_20-frames.nc"),
+                       os.path.join(TEST_DIR_INPUTS, "test_data_20-frames_2.nc")]
+        self.topology = os.path.join(TEST_DIR_INPUTS, "test_data.parm")
+        # self.traj1 = load_trajectory([self.inputs[0]], os.path.join(TEST_DIR_INPUTS, "test_data.parm"))
+        with open(os.path.join(TEST_DIR_EXPECTED, "test_analysis.yaml"), "r") as file_handler:
+            self.analysis_yaml = yaml.safe_load(file_handler.read())
         # self.contacts = format_csv(os.path.join(TEST_FILES_DIR,
         #                                         "contacts_JQ679014_hinge_WT_ranked_0_20-frames_mask-25-45.csv"))
 
@@ -52,22 +55,62 @@ class TestTrajectories(unittest.TestCase):
         # Clean temporary files
         shutil.rmtree(self.tmp_dir)
 
+    def test_restricted_float(self):
+        self.assertEqual(50.0, restricted_float("50.0"))
+        self.assertEqual(50.0, restricted_float("50"))
+        self.assertRaises(argparse.ArgumentTypeError, restricted_float, "-10.0")
+        self.assertRaises(argparse.ArgumentTypeError, restricted_float, "105.0")
+
+    def test_restricted_positive(self):
+        self.assertEqual(50.0, restricted_positive("50.0"))
+        self.assertRaises(argparse.ArgumentTypeError, restricted_positive, "-10.0")
+
+    def test_restricted_angle(self):
+        self.assertEqual(135.0, restricted_angle("135"))
+        self.assertRaises(argparse.ArgumentTypeError, restricted_angle, "-10")
+        self.assertRaises(argparse.ArgumentTypeError, restricted_angle, "361")
+
+    def test_parse_frames(self):
+        current = parse_frames(self.frames, self.inputs)
+        self.assertDictEqual(current, self.parsed_frames)
+
+    def test_resume_or_initialize_analysis(self):
+        expected = copy.copy(self.analysis_yaml)
+        expected["H bonds"] = {}
+        expected["size Gb"] = 0
+        expected["frames"] = 0
+        del expected["molecules"]
+        del expected["residues"]
+        del expected["atoms"]
+        no_resume = resume_or_initialize_analysis(self.inputs, self.topology, self.sample, self.dist_cutoff,
+                                                  self.angle_cutoff, self.pct_cutoff, self.nanoseconds, None,
+                                                  self.parsed_frames)
+        self.assertDictEqual(no_resume, expected)
+        with self.assertLogs() as cm_logs:
+            resumed = resume_or_initialize_analysis(self.inputs, self.topology, self.sample, self.dist_cutoff,
+                                                    self.angle_cutoff, self.pct_cutoff, self.nanoseconds,
+                                                    os.path.join(TEST_DIR_EXPECTED, "test_analysis.yaml"),
+                                                    self.parsed_frames)
+            with open(os.path.join(TEST_DIR_EXPECTED, "test_analysis_resumed.yaml"), "r") as file_handler:
+                expected_resumed = yaml.safe_load(file_handler.read())
+            self.assertDictEqual(resumed, expected_resumed)
+        self.assertEqual(cm_logs.records[0].getMessage(), f"resumed analysis from YAML file: {self.analysis_yaml}")
+
+
+
     def test_load_trajectory(self):
         traj = load_trajectory([os.path.join(TEST_DIR, "test_files", "test_data_20-frames.nc")],
                                os.path.join(TEST_DIR, "test_files", "test_data.parm"))
         self.assertEqual(traj.n_frames, 10)
 
-    def test_check_chunk_size(self):
-        self.assertEqual(check_chunk_size(100, self.traj.n_frames), 10)
-        self.assertNotEqual(check_chunk_size(3, self.traj.n_frames), 10)
 
-    def test_record_analysis_parameters(self):
-        observed_path = os.path.join(self.tmp_dir, os.path.join(f"{self.sample}_analysis_parameters.yaml"))
-        record_analysis_yaml(self.tmp_dir, self.sample, self.traj, self.dist_cutoff, self.angle_cutoff,
-                             self.pct_cutoff, self.frames, self.md_time)
-        with open(observed_path, "r") as file_handler:
-            observed = yaml.safe_load(file_handler.read())
-            self.assertEqual(observed, self.parameters)
+    # def test_record_analysis_parameters(self):
+    #     observed_path = os.path.join(self.tmp_dir, os.path.join(f"{self.sample}_analysis_parameters.yaml"))
+    #     record_analysis_yaml(self.tmp_dir, self.sample, self.traj, self.dist_cutoff, self.angle_cutoff,
+    #                          self.pct_cutoff, self.frames, self.md_time)
+    #     with open(observed_path, "r") as file_handler:
+    #         observed = yaml.safe_load(file_handler.read())
+    #         self.assertEqual(observed, self.parameters)
 
 
 

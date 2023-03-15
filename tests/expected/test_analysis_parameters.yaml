@@ -1,9 +1,0 @@
-MD duration: 0 ns
-angle cutoff: 135
-frames:
-  max: 20
-  min: 10
-maximal atoms distance: 3.0
-proportion contacts: 50.0
-protein length: 73
-sample: test
