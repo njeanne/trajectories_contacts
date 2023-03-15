@@ -222,16 +222,34 @@ def load_trajectory(trajectory_file, topology_file, frames_sel):
     :type trajectory_file: str
     :param topology_file: the topology file path.
     :type topology_file: str
+    :param frames_sel: the frames selection for new trajectory files.
+    :type frames_sel: dict
     :return: the loaded trajectory.
     :rtype: pytraj.Trajectory
     """
     logging.info(f"\tLoading trajectory file, please be patient..")
     traj = pt.iterload(trajectory_file, top=topology_file, )
-    logging.info(f"\t\tTrajectory memory size:{round(traj._estimated_GB, 6):>10} Gb")
-    logging.info(f"\t\tTrajectory frames:{traj.n_frames:>9}")
-    logging.info(f"\t\tMolecules:{traj.topology.n_mols:>16}")
-    logging.info(f"\t\tResidues:{traj.topology.n_residues:>18}")
-    logging.info(f"\t\tAtoms:{traj.topology.n_atoms:>23}")
+    logging.info(f"\t\tMolecules:{traj.topology.n_mols:>20}")
+    logging.info(f"\t\tResidues:{traj.topology.n_residues:>22}")
+    logging.info(f"\t\tAtoms:{traj.topology.n_atoms:>27}")
+    logging.info(f"\t\tTrajectory total frames:{traj.n_frames:>7}")
+    logging.info(f"\t\tTrajectory memory size:{round(traj._estimated_GB, 6):>14} Gb")
+    if os.path.basename(trajectory_file) in frames_selection:
+        traj_bn = os.path.basename(trajectory_file)
+        if frames_selection[traj_bn]["end"] > traj.n_frames:
+            raise IndexError(f"Selected upper frame limit for {traj_bn} ({frames_selection[traj_bn]['end']}) from "
+                             f"--frames argument is greater than the total frames number ({traj.n_frames}) of the MD "
+                             f"trajectory.")
+        frames_range = range(frames_selection[traj_bn]["begin"], frames_selection[traj_bn]["end"])
+        if frames_selection[traj_bn]["begin"] == 1:
+            frames_range[0] = 0
+        traj = traj[frames_range]
+        logging.info(f"\t\tSelected frames:{frames_selection[traj_bn]['begin']:>14} to "
+                     f"{frames_selection[traj_bn]['end']}")
+        logging.info(f"\t\tSelected frames memory size:{round(traj._estimated_GB, 6):>9} GB")
+    else:
+        txt = f"1 to {traj.n_frames}"
+        logging.info(f"\t\tSelected frames:{txt:>20}")
     return traj
 
 
@@ -273,26 +291,7 @@ def check_trajectories_consistency(traj, path, data):
     return data
 
 
-def check_chunk_size(chunk, n_frames):
-    """
-    Modify the number of frames on which each step of the hydrogen bonds will be performed by each chunk in the case
-    that the chunk size is greater than the number of frames of the trajectory.
-
-    :param chunk: the chunk representing the number of frames selected by the user.
-    :type chunk: int
-    :param n_frames: the number of studied frames.
-    :type n_frames: int
-    :return: the chunk size modified if necessary
-    :rtype: int
-    """
-    if chunk > n_frames:
-        logging.warning(f"\t\tchunk size of {chunk} frames for hydrogen bonds search is greater than the {n_frames} "
-                        f"frames of the trajectory, the chunk size is adjusted to {n_frames} frames.")
-        chunk = n_frames
-    return chunk
-
-
-def hydrogen_bonds(inspected_traj, data, atoms_dist, angle, steps):
+def hydrogen_bonds(inspected_traj, data, atoms_dist, angle):
     """
     Extract the hydrogen bonds and add the distances values.
 
@@ -304,43 +303,24 @@ def hydrogen_bonds(inspected_traj, data, atoms_dist, angle, steps):
     :type atoms_dist: float
     :param angle: the angle cutoff for the hydrogen bonds.
     :type angle: int
-    :param steps: the step for each chunk.
-    :type: int
     :return: the updated trajectories data.
     :rtype: dict
     """
     logging.info("\tsearch for hydrogen bonds:")
-    start_frame = 0
-    # set the steps and check the case only one frame remains for the last step
-    if steps == inspected_traj.n_frames:
-        chunk_steps = [inspected_traj.n_frames]
-    else:
-        chunk_steps = list(range(steps - 1, inspected_traj.n_frames, steps))
-        # add the last frame of the trajectory if the last range value do not correspond to the last frame, i.e:
-        # 7 frames with a chunk of 2, the range produced is [2, 4, 6], we need to add 7 -> [2, 4, 6, 7]
-        if chunk_steps[-1] < inspected_traj.n_frames - 1:
-            chunk_steps.append(inspected_traj.n_frames - 1)
-    # get all the hydrogen bonds
-    for chunk_step in chunk_steps:
-        logging.debug(f"\t\tChunk on frames index {start_frame} to {chunk_step}.")
-        frames_chunk = range(start_frame, chunk_step) if start_frame != chunk_step else [start_frame]
-        # search hydrogen bonds with distance < atoms distance threshold and angle > angle cut-off.
-        chunk_h_bonds = pt.search_hbonds(inspected_traj, distance=atoms_dist, angle=angle, frame_indices=frames_chunk)
-        logging.debug(f"\t\t\t{len(chunk_h_bonds.donor_acceptor)} hydrogen bonds found.")
-        # get the distances in the chunk
-        chunk_distances = pt.distance(inspected_traj, chunk_h_bonds.get_amber_mask()[0], frame_indices=frames_chunk)
-        # record the distances of all hydrogen bonds (donors-acceptors) detected in the chunk
-        for idx in range(len(chunk_h_bonds.donor_acceptor)):
-            donor_acceptor = chunk_h_bonds.donor_acceptor[idx]
-            # filter the whole frames distances for this contact on the atoms contact distance threshold
-            filtered_distances = chunk_distances[idx][chunk_distances[idx] <= atoms_dist]
-            if donor_acceptor in data["H bonds"]:
-                data["H bonds"][donor_acceptor] = np.concatenate((data["H bonds"][donor_acceptor], filtered_distances))
-            else:
-                data["H bonds"][donor_acceptor] = filtered_distances
-            np.set_printoptions(threshold=sys.maxsize)
-        start_frame = chunk_step + 1
-    logging.info(f"\t\t{len(data['H bonds'])} hydrogen bonds found on the {inspected_traj.n_frames} frames of the "
+    # search hydrogen bonds with distance < atoms distance threshold and angle > angle cut-off.
+    h_bonds = pt.search_hbonds(inspected_traj, distance=atoms_dist, angle=angle)
+    # get the distances
+    distances = pt.distance(inspected_traj, h_bonds.get_amber_mask()[0])
+    # record the distances of all hydrogen bonds (donors-acceptors) detected in the chunk
+    for idx in range(len(h_bonds.donor_acceptor)):
+        donor_acceptor = h_bonds.donor_acceptor[idx]
+        # filter the whole frames distances for this contact on the atoms contact distance threshold
+        filtered_distances = distances[idx][distances[idx] <= atoms_dist]
+        if donor_acceptor in data["H bonds"]:
+            data["H bonds"][donor_acceptor] = np.concatenate((data["H bonds"][donor_acceptor], filtered_distances))
+        else:
+            data["H bonds"][donor_acceptor] = filtered_distances
+    logging.info(f"\t\t{len(data['H bonds'])} hydrogen bonds found in the {inspected_traj.n_frames} frames of the "
                  f"trajectory.")
     return data
 
@@ -391,7 +371,10 @@ def filter_hbonds(analysis_data, pattern):
     :return: the filtered hydrogen bonds.
     :rtype: pandas.DataFrame
     """
-    logging.info("Filtering the hydrogen bonds:")
+    logging.info(f"Filtering {len(analysis_data['trajectory files'])} trajector"
+                 f"{'ies' if len(analysis_data['trajectory files']) > 1 else 'y'} file"
+                 f"{'s' if len(analysis_data['trajectory files']) > 1 else ''} with {len(analysis_data['H bonds'])} "
+                 f"hydrogen bonds:")
     intra_residue_contacts = 0
     inter_residue_contacts_failed_thr = 0
     data = {}
@@ -500,7 +483,7 @@ def record_analysis_yaml(out_dir, smp, data):
         tmp["H bonds"][h_bond] = tmp["H bonds"][h_bond].tolist()
     with open(out, "w") as file_handler:
         yaml.dump(tmp, file_handler)
-    logging.info(f"Analysis YAML file: {os.path.abspath(out)}")
+    logging.info(f"Analysis parameter YAML file: {os.path.abspath(out)}")
 
 
 if __name__ == "__main__":
@@ -546,9 +529,6 @@ if __name__ == "__main__":
                         help="Hydrogen bond is defined as A-HD, where A is acceptor heavy atom, H is hydrogen, D is "
                              "donor heavy atom. One condition to form an hydrogen bond is A-H-D angle > angle cut-off. "
                              "Default is 135 degrees.")
-    parser.add_argument("-c", "--chunk", required=False, type=int, default=1000,
-                        help="to save memory, the chunk size of the trajectory frames on which a search for hydrogen "
-                             "bonds will be performed.")
     parser.add_argument("-p", "--proportion-contacts", required=False, type=restricted_float, default=20.0,
                         help="the minimal percentage of frames which make contact between 2 atoms of different "
                              "residues in the selected frame of the molecular dynamics simulation, default is 20%%.")
@@ -588,14 +568,15 @@ if __name__ == "__main__":
         logging.error(ex, exc_info=True)
         sys.exit(1)
 
-    data_traj = resume_or_initialize_analysis(args.inputs, args.sample, args.distance_contacts, args.angle_cutoff,
-                                              args.proportion_contacts, args.nanoseconds, args.resume)
+    data_traj = resume_or_initialize_analysis(args.inputs, args.topology, args.sample, args.distance_contacts,
+                                              args.angle_cutoff, args.proportion_contacts, args.nanoseconds,
+                                              args.resume, frames_selection)
 
     for traj_file in args.inputs:
         # load the trajectory
         logging.info(f"Processing trajectory file: {os.path.splitext(os.path.basename(traj_file))[0]}")
         try:
-            trajectory = load_trajectory(traj_file, args.topology)
+            trajectory = load_trajectory(traj_file, args.topology, frames_selection)
             data_traj = check_trajectories_consistency(trajectory, traj_file, data_traj)
         except RuntimeError as exc:
             logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({', '.join(args.inputs)}) "
@@ -609,10 +590,8 @@ if __name__ == "__main__":
             logging.error(exc, exc_info=True)
             sys.exit(1)
 
-        # check if the chunk size is less than the number of frames of the trajectory
-        chunk_size = check_chunk_size(args.chunk, trajectory.n_frames)
         # find the Hydrogen bonds
-        data_traj = hydrogen_bonds(trajectory, data_traj, args.distance_contacts, args.angle_cutoff, chunk_size)
+        data_traj = hydrogen_bonds(trajectory, data_traj, args.distance_contacts, args.angle_cutoff)
 
     # filter the hydrogen bonds
     pattern_donor_acceptor = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
@@ -628,4 +607,3 @@ if __name__ == "__main__":
 
     # record the analysis parameter in a yaml file
     record_analysis_yaml(args.out, args.sample, data_traj)
-
