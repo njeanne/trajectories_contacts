@@ -39,7 +39,7 @@ def restricted_float(value_to_inspect):
 
 
 def restricted_positive(value_to_inspect):
-    """Inspect if an angle value is between 0 and 359.
+    """Inspect if the value is positive.
 
     :param value_to_inspect: the value to inspect
     :type value_to_inspect: str
@@ -126,23 +126,26 @@ def parse_frames(frames_selections, traj_files_paths):
                     raise argparse.ArgumentTypeError(f"The trajectory file {current_traj} in frame selection part "
                                                      f"'{frames_sel}' is not a file belonging to the inputs trajectory "
                                                      f"files: {','.join(traj_basenames)}")
-                data[current_traj] = {"start": start, "end": end}
+                data[current_traj] = {"begin": int(start), "end": int(end)}
             else:
                 raise argparse.ArgumentTypeError(f"The frame selection part '{frames_sel}' do not match the correct "
                                                  f"pattern {pattern.pattern}'")
         logging.info("Frames selection on input trajectory files:")
         for current_traj in data:
-            logging.info(f"\t{current_traj}: frames selection from {start} to {end}.")
+            logging.info(f"\t{current_traj}: frames selection from {data[current_traj]['begin']} to "
+                         f"{data[current_traj]['end']}.")
     return data
 
 
-def resume_or_initialize_analysis(trajectory_files, smp, distance_contacts, angle_cutoff, proportion_contacts, sim_time,
-                                  resume_path):
+def resume_or_initialize_analysis(trajectory_files, topology_file, smp, distance_contacts, angle_cutoff,
+                                  proportion_contacts, sim_time, resume_path, frames_sel):
     """
     Load the previous analysis data or create a new one if no previous analysis path was performed.
 
     :param trajectory_files: the current analysis trajectory files path.
     :type trajectory_files: list
+    :param topology_file: the trajectories topology file.
+    :type topology_file: str
     :param smp: the sample name.
     :type smp: str
     :param distance_contacts: the threshold atoms distance in Angstroms for contacts.
@@ -153,9 +156,11 @@ def resume_or_initialize_analysis(trajectory_files, smp, distance_contacts, angl
     selected frames.
     :type proportion_contacts: float
     :param sim_time: the molecular dynamics simulation time in ns.
-    :type sim_time: str
+    :type sim_time: int
     :param resume_path: the path to the YAML file of previous analysis.
     :type resume_path: str
+    :param frames_sel: the frames selection for new trajectory files.
+    :type frames_sel: dict
     :return: the initialized or resumed analysis data.
     :rtype: dict
     """
@@ -168,6 +173,9 @@ def resume_or_initialize_analysis(trajectory_files, smp, distance_contacts, angl
         if data["sample"] != smp:
             discrepancies.append(f"discrepancy in --sample, current analysis is {smp}, previous analysis was "
                                  f"{data['sample']}")
+        if data["topology file"] != os.path.basename(topology_file):
+            discrepancies.append(f"discrepancy in --topology, current analysis is {topology_file}, previous analysis "
+                                 f"was {data['topology file']}")
         if data["parameters"]["maximal atoms distance"] != distance_contacts:
             discrepancies.append(f"discrepancy in --distance-contacts, current analysis is {distance_contacts}, "
                                  f"previous analysis was {data['parameters']['maximal atoms distance']}")
@@ -188,22 +196,25 @@ def resume_or_initialize_analysis(trajectory_files, smp, distance_contacts, angl
         # add the new files path
         data["trajectory files"] = data["trajectory files"] + sorted(
             [os.path.basename(t_file) for t_file in trajectory_files])
+        # add frames selection in new trajectory files
+        if frames_sel:
+            if "frames selections" in data["parameters"]:
+                for traj_fn in frames_sel:
+                    data["parameters"]["frames selections"][traj_fn] = frames_sel[traj_fn]
+            else:
+                data["parameters"]["frames selections"] = frames_sel
     else:
         data = {"sample": smp, "size Gb": 0, "frames": 0,
                 "parameters": {"maximal atoms distance": distance_contacts, "angle cutoff": angle_cutoff,
                                "proportion contacts": proportion_contacts},
-                "trajectory files": sorted([os.path.basename(t_file) for t_file in trajectory_files]), "H bonds": {}}
-
-    if sim_time:
-        if "time" in data["parameters"]:
-            data["parameters"]["time"] = f"{int(data['parameters']['time'].split(' ')[0]) + int(sim_time)} ns"
-        else:
-            data["parameters"]["time"] = f"{sim_time} ns"
-
+                "trajectory files": sorted([os.path.basename(t_file) for t_file in trajectory_files]),
+                "topology file": os.path.basename(topology_file), "H bonds": {}}
+    # set the simulation time
+    data["parameters"]["time"] = f"{sim_time} ns"
     return data
 
 
-def load_trajectory(trajectory_file, topology_file):
+def load_trajectory(trajectory_file, topology_file, frames_sel):
     """
     Load the trajectory file.
 
