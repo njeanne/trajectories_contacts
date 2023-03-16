@@ -213,7 +213,7 @@ def resume_or_initialize_analysis(trajectory_files, topology_file, smp, distance
                 "parameters": {"maximal atoms distance": distance_contacts, "angle cutoff": angle_cutoff,
                                "proportion contacts": proportion_contacts},
                 "trajectory files": sorted([os.path.basename(t_file) for t_file in trajectory_files]),
-                "topology file": os.path.basename(topology_file), "H bonds": {}}
+                "topology file": os.path.basename(topology_file)}
     # set the simulation time
     data["parameters"]["time"] = f"{sim_time} ns"
     return data
@@ -239,18 +239,17 @@ def load_trajectory(trajectory_file, topology_file, frames_sel):
     logging.info(f"\t\tAtoms:{traj.topology.n_atoms:>27}")
     logging.info(f"\t\tTrajectory total frames:{traj.n_frames:>7}")
     logging.info(f"\t\tTrajectory memory size:{round(traj._estimated_GB, 6):>14} Gb")
-    if os.path.basename(trajectory_file) in frames_selection:
+    if os.path.basename(trajectory_file) in frames_sel:
         traj_bn = os.path.basename(trajectory_file)
-        if frames_selection[traj_bn]["end"] > traj.n_frames:
-            raise IndexError(f"Selected upper frame limit for {traj_bn} ({frames_selection[traj_bn]['end']}) from "
+        if frames_sel[traj_bn]["end"] > traj.n_frames:
+            raise IndexError(f"Selected upper frame limit for {traj_bn} ({frames_sel[traj_bn]['end']}) from "
                              f"--frames argument is greater than the total frames number ({traj.n_frames}) of the MD "
                              f"trajectory.")
-        frames_range = range(frames_selection[traj_bn]["begin"], frames_selection[traj_bn]["end"])
-        if frames_selection[traj_bn]["begin"] == 1:
+        frames_range = range(frames_sel[traj_bn]["begin"], frames_sel[traj_bn]["end"])
+        if frames_sel[traj_bn]["begin"] == 1:
             frames_range[0] = 0
         traj = traj[frames_range]
-        logging.info(f"\t\tSelected frames:{frames_selection[traj_bn]['begin']:>14} to "
-                     f"{frames_selection[traj_bn]['end']}")
+        logging.info(f"\t\tSelected frames:{frames_sel[traj_bn]['begin']:>14} to {frames_sel[traj_bn]['end']}")
         logging.info(f"\t\tSelected frames memory size:{round(traj._estimated_GB, 6):>9} GB")
     else:
         txt = f"1 to {traj.n_frames}"
@@ -276,21 +275,18 @@ def check_trajectories_consistency(traj, path, data):
         data["atoms"] = traj.topology.n_atoms
         data["molecules"] = traj.topology.n_mols
     else:
-        if data_traj["residues"] != traj.topology.n_residues:
-            logging.error(f"the residues number ({traj.topology.n_residues}) is different from the residues number of "
-                          f"the previous trajectories ({data_traj['residues']}), check if {os.path.basename(path)} is "
-                          f"from the same trajectory than the previous ones.")
-            sys.exit(1)
-        if data_traj["atoms"] != traj.topology.n_atoms:
-            logging.error(f"the atoms number ({traj.topology.n_atoms}) is different from the atoms number of "
-                          f"the previous trajectories ({data_traj['atoms']}), check if {os.path.basename(path)} is "
-                          f"from the same trajectory than the previous ones.")
-            sys.exit(1)
-        if data_traj["molecules"] != traj.topology.n_mols:
-            logging.error(f"the molecules number ({traj.topology.n_mols}) is different from the molecules number of "
-                          f"the previous trajectories ({data_traj['molecules']}), check if {os.path.basename(path)} is "
-                          f"from the same trajectory than the previous ones.")
-            sys.exit(1)
+        if data["residues"] != traj.topology.n_residues:
+            raise ValueError(f"the residues number ({traj.topology.n_residues}) is different from the residues number "
+                             f"of the previous trajectories ({data['residues']}), check if "
+                             f"{os.path.basename(path)} is from the same trajectory than the previous ones.")
+        if data["atoms"] != traj.topology.n_atoms:
+            raise ValueError(f"the atoms number ({traj.topology.n_atoms}) is different from the atoms number of "
+                             f"the previous trajectories ({data['atoms']}), check if {os.path.basename(path)} is "
+                             f"from the same trajectory than the previous ones.")
+        if data["molecules"] != traj.topology.n_mols:
+            raise ValueError(f"the molecules number ({traj.topology.n_mols}) is different from the molecules number of "
+                             f"the previous trajectories ({data['molecules']}), check if {os.path.basename(path)} "
+                             f"is from the same trajectory than the previous ones.")
     data["size Gb"] += traj._estimated_GB
     data["frames"] += traj.n_frames
     return data
@@ -316,6 +312,8 @@ def hydrogen_bonds(inspected_traj, data, atoms_dist, angle):
     h_bonds = pt.search_hbonds(inspected_traj, distance=atoms_dist, angle=angle)
     # get the distances
     distances = pt.distance(inspected_traj, h_bonds.get_amber_mask()[0])
+    if "H bonds" not in data:
+        data["H bonds"] = {}
     # record the distances of all hydrogen bonds (donors-acceptors) detected in the chunk
     for idx in range(len(h_bonds.donor_acceptor)):
         donor_acceptor = h_bonds.donor_acceptor[idx]
@@ -592,8 +590,7 @@ if __name__ == "__main__":
                           f"files exists", exc_info=True)
             sys.exit(1)
         except ValueError as exc:
-            logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({', '.join(args.inputs)}) "
-                          f"files exists.", exc_info=True)
+            logging.error(exc, exc_info=True)
             sys.exit(1)
         except IndexError as exc:
             logging.error(exc, exc_info=True)

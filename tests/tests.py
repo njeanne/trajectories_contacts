@@ -45,7 +45,8 @@ class TestTrajectories(unittest.TestCase):
         self.inputs = [os.path.join(TEST_DIR_INPUTS, "test_data_20-frames.nc"),
                        os.path.join(TEST_DIR_INPUTS, "test_data_20-frames_2.nc")]
         self.topology = os.path.join(TEST_DIR_INPUTS, "test_data.parm")
-        # self.traj1 = load_trajectory([self.inputs[0]], os.path.join(TEST_DIR_INPUTS, "test_data.parm"))
+        self.traj1 = load_trajectory(self.inputs[0], self.topology, self.parsed_frames)
+        self.traj2 = load_trajectory(self.inputs[1], self.topology, self.parsed_frames)
         with open(os.path.join(TEST_DIR_EXPECTED, "test_analysis.yaml"), "r") as file_handler:
             self.analysis_yaml = yaml.safe_load(file_handler.read())
         # self.contacts = format_csv(os.path.join(TEST_FILES_DIR,
@@ -110,21 +111,44 @@ class TestTrajectories(unittest.TestCase):
                                                          "test_analysis.yaml"),
                           self.parsed_frames)
 
-    # def test_load_trajectory(self):
-    #     traj = load_trajectory([os.path.join(TEST_DIR, "test_files", "test_data_20-frames.nc")],
-    #                            os.path.join(TEST_DIR, "test_files", "test_data.parm"))
-    #     self.assertEqual(traj.n_frames, 10)
+    def test_load_trajectory(self):
+        self.assertEqual(self.traj1.n_frames, 15)
+        self.assertRaises(IndexError, load_trajectory, self.inputs[0], os.path.join(TEST_DIR_INPUTS, "test_data.parm"),
+                          {"test_data_20-frames.nc": {"begin": 5, "end": 100}})
 
+    def test_check_trajectories_consistency(self):
+        with open(os.path.join(TEST_DIR_EXPECTED, "test_analysis.yaml"), "r") as file_handler:
+            expected = yaml.safe_load(file_handler.read())
+            del expected["H bonds"]
+            del expected["parameters"]
+            del expected["sample"]
+            del expected["topology file"]
+            del expected["trajectory files"]
+        with open(os.path.join(TEST_DIR_EXPECTED, "test_check_consistency.yaml"), "r") as file_handler:
+            actual_data1 = yaml.safe_load(file_handler.read())
+        actual1 = check_trajectories_consistency(self.traj2, self.inputs[1], actual_data1)
+        self.assertDictEqual(actual1, expected)
+        with open(os.path.join(TEST_DIR_EXPECTED, "test_check_consistency.yaml"), "r") as file_handler:
+            actual_data2 = yaml.safe_load(file_handler.read())
+        del actual_data2["residues"]
+        actual2 = check_trajectories_consistency(self.traj2, self.inputs[1], copy.copy(actual_data2))
+        self.assertDictEqual(actual2, expected)
+        actual_data2["residues"] = 10
+        self.assertRaises(ValueError, check_trajectories_consistency, self.traj2, self.inputs[1], actual_data2)
+        actual_data2["residues"] = 73
+        actual_data2["atoms"] = 10000
+        self.assertRaises(ValueError, check_trajectories_consistency, self.traj2, self.inputs[1], actual_data2)
+        actual_data2["atoms"] = 1041
+        actual_data2["molecules"] = 1000
+        self.assertRaises(ValueError, check_trajectories_consistency, self.traj2, self.inputs[1], actual_data2)
 
-    # def test_record_analysis_parameters(self):
+        # def test_record_analysis_parameters(self):
     #     observed_path = os.path.join(self.tmp_dir, os.path.join(f"{self.sample}_analysis_parameters.yaml"))
     #     record_analysis_yaml(self.tmp_dir, self.sample, self.traj, self.dist_cutoff, self.angle_cutoff,
     #                          self.pct_cutoff, self.frames, self.md_time)
     #     with open(observed_path, "r") as file_handler:
     #         observed = yaml.safe_load(file_handler.read())
     #         self.assertEqual(observed, self.parameters)
-
-
 
     # def test_hydrogen_bonds(self):
     #     unique_id = str(uuid.uuid1())
