@@ -186,9 +186,14 @@ def resume_or_initialize_analysis(trajectory_files, topology_file, smp, distance
             discrepancies.append(f"discrepancy in --proportion-contacts, current analysis is {proportion_contacts}, "
                                  f"previous analysis was {data['parameters']['proportion contacts']}")
         if discrepancies:
+            discrepancies_txt = None
             for item in discrepancies:
-                logging.error(f"{item}, check {resume_path}.")
-            sys.exit(1)
+                if discrepancies_txt:
+                    discrepancies_txt = f"{discrepancies_txt}; {item}"
+                else:
+                    discrepancies_txt = item
+                discrepancies_txt = f"{discrepancies_txt}. Check {resume_path}"
+            raise KeyError(discrepancies_txt)
 
         # cast lists to numpy arrays
         for h_bond in data["H bonds"]:
@@ -568,9 +573,13 @@ if __name__ == "__main__":
         logging.error(ex, exc_info=True)
         sys.exit(1)
 
-    data_traj = resume_or_initialize_analysis(args.inputs, args.topology, args.sample, args.distance_contacts,
-                                              args.angle_cutoff, args.proportion_contacts, args.nanoseconds,
-                                              args.resume, frames_selection)
+    try:
+        data_traj = resume_or_initialize_analysis(args.inputs, args.topology, args.sample, args.distance_contacts,
+                                                  args.angle_cutoff, args.proportion_contacts, args.nanoseconds,
+                                                  args.resume, frames_selection)
+    except KeyError as exc:
+        logging.error(exc, exc_info=True)
+        sys.exit(1)
 
     for traj_file in args.inputs:
         # load the trajectory
