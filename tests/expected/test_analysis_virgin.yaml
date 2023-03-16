@@ -1,0 +1,13 @@
+H bonds: {}
+frames: 0
+parameters:
+  angle cutoff: 135
+  maximal atoms distance: 3.0
+  proportion contacts: 50.0
+  time: 1 ns
+sample: test
+size Gb: 0
+topology file: test_data.parm
+trajectory files:
+- test_data_20-frames.nc
+- test_data_20-frames_2.nc

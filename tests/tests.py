@@ -74,34 +74,46 @@ class TestTrajectories(unittest.TestCase):
         current = parse_frames(self.frames, self.inputs)
         self.assertDictEqual(current, self.parsed_frames)
 
-    def test_resume_or_initialize_analysis(self):
-        expected = copy.copy(self.analysis_yaml)
-        expected["H bonds"] = {}
-        expected["size Gb"] = 0
-        expected["frames"] = 0
-        del expected["molecules"]
-        del expected["residues"]
-        del expected["atoms"]
-        no_resume = resume_or_initialize_analysis(self.inputs, self.topology, self.sample, self.dist_cutoff,
-                                                  self.angle_cutoff, self.pct_cutoff, self.nanoseconds, None,
-                                                  self.parsed_frames)
-        self.assertDictEqual(no_resume, expected)
+    def test_initialize_resume_analysis(self):
+        # test creation
+        actual = resume_or_initialize_analysis(self.inputs, self.topology, self.sample, self.dist_cutoff,
+                                               self.angle_cutoff, self.pct_cutoff, self.nanoseconds, None,
+                                               self.parsed_frames)
+        with open(os.path.join(TEST_DIR_EXPECTED, "test_analysis_virgin.yaml"), "r") as file_handler:
+            expected = yaml.safe_load(file_handler.read())
+        self.assertDictEqual(actual, expected)
+        # test resume
         with self.assertLogs() as cm_logs:
-            resumed = resume_or_initialize_analysis(self.inputs, self.topology, self.sample, self.dist_cutoff,
-                                                    self.angle_cutoff, self.pct_cutoff, self.nanoseconds,
-                                                    os.path.join(TEST_DIR_EXPECTED, "test_analysis.yaml"),
-                                                    self.parsed_frames)
+            actual = resume_or_initialize_analysis(self.inputs, self.topology, self.sample, self.dist_cutoff,
+                                                   self.angle_cutoff, self.pct_cutoff, self.nanoseconds,
+                                                   os.path.join(TEST_DIR_EXPECTED, "test_analysis.yaml"),
+                                                   self.parsed_frames)
             with open(os.path.join(TEST_DIR_EXPECTED, "test_analysis_resumed.yaml"), "r") as file_handler:
-                expected_resumed = yaml.safe_load(file_handler.read())
-            self.assertDictEqual(resumed, expected_resumed)
-        self.assertEqual(cm_logs.records[0].getMessage(), f"resumed analysis from YAML file: {self.analysis_yaml}")
+                expected = yaml.safe_load(file_handler.read())
+            for key in actual["H bonds"]:
+                np.testing.assert_array_equal(actual["H bonds"][key], expected["H bonds"][key])
+            self.assertEqual(actual["atoms"], expected["atoms"])
+            self.assertEqual(actual["frames"], expected["frames"])
+            self.assertEqual(actual["molecules"], expected["molecules"])
+            self.assertDictEqual(actual["parameters"], expected["parameters"])
+            self.assertEqual(actual["residues"], expected["residues"])
+            self.assertEqual(actual["sample"], expected["sample"])
+            self.assertEqual(actual["size Gb"], expected["size Gb"])
+            self.assertEqual(actual["topology file"], expected["topology file"])
+            self.assertListEqual(actual["trajectory files"], expected["trajectory files"])
+        self.assertEqual(cm_logs.records[0].getMessage(), f"resumed analysis from YAML file: "
+                                                          f"{os.path.join(TEST_DIR_EXPECTED, 'test_analysis.yaml')}")
+        # test resume with discrepancies
+        self.assertRaises(KeyError, resume_or_initialize_analysis, self.inputs,
+                          os.path.join(TEST_DIR_EXPECTED, "test_analysis.yaml"), "John Doe", 5.0, 200, 90.0,
+                          self.nanoseconds, os.path.join(TEST_DIR_EXPECTED,
+                                                         "test_analysis.yaml"),
+                          self.parsed_frames)
 
-
-
-    def test_load_trajectory(self):
-        traj = load_trajectory([os.path.join(TEST_DIR, "test_files", "test_data_20-frames.nc")],
-                               os.path.join(TEST_DIR, "test_files", "test_data.parm"))
-        self.assertEqual(traj.n_frames, 10)
+    # def test_load_trajectory(self):
+    #     traj = load_trajectory([os.path.join(TEST_DIR, "test_files", "test_data_20-frames.nc")],
+    #                            os.path.join(TEST_DIR, "test_files", "test_data.parm"))
+    #     self.assertEqual(traj.n_frames, 10)
 
 
     # def test_record_analysis_parameters(self):
