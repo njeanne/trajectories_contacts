@@ -37,7 +37,7 @@ class TestTrajectories(unittest.TestCase):
         self.dist_cutoff = 3.0
         self.angle_cutoff = 135
         self.pct_cutoff = 50.0
-        self.sample = "test"
+        self.sample = "sample test"
         self.nanoseconds = 1
         self.frames = "test_data_20-frames.nc:5-20"
         self.parsed_frames = {'test_data_20-frames.nc': {'begin': 5, 'end': 20}}
@@ -45,9 +45,7 @@ class TestTrajectories(unittest.TestCase):
         self.inputs = [os.path.join(TEST_DIR_INPUTS, "test_data_20-frames.nc"),
                        os.path.join(TEST_DIR_INPUTS, "test_data_20-frames_2.nc")]
         self.topology = os.path.join(TEST_DIR_INPUTS, "test_data.parm")
-        self.traj1 = load_trajectory(self.inputs[0], self.topology, self.parsed_frames)
-        self.traj2 = load_trajectory(self.inputs[1], self.topology, self.parsed_frames)
-        with open(os.path.join(TEST_DIR_EXPECTED, "test_analysis.yaml"), "r") as file_handler:
+        with open(os.path.join(TEST_DIR_EXPECTED, "analysis.yaml"), "r") as file_handler:
             self.analysis_yaml = yaml.safe_load(file_handler.read())
         # self.contacts = format_csv(os.path.join(TEST_FILES_DIR,
         #                                         "contacts_JQ679014_hinge_WT_ranked_0_20-frames_mask-25-45.csv"))
@@ -80,16 +78,16 @@ class TestTrajectories(unittest.TestCase):
         actual = resume_or_initialize_analysis(self.inputs, self.topology, self.sample, self.dist_cutoff,
                                                self.angle_cutoff, self.pct_cutoff, self.nanoseconds, None,
                                                self.parsed_frames)
-        with open(os.path.join(TEST_DIR_EXPECTED, "test_analysis_virgin.yaml"), "r") as file_handler:
+        with open(os.path.join(TEST_DIR_EXPECTED, "analysis_virgin.yaml"), "r") as file_handler:
             expected = yaml.safe_load(file_handler.read())
         self.assertDictEqual(actual, expected)
         # test resume
         with self.assertLogs() as cm_logs:
             actual = resume_or_initialize_analysis(self.inputs, self.topology, self.sample, self.dist_cutoff,
                                                    self.angle_cutoff, self.pct_cutoff, self.nanoseconds,
-                                                   os.path.join(TEST_DIR_EXPECTED, "test_analysis.yaml"),
+                                                   os.path.join(TEST_DIR_EXPECTED, "analysis.yaml"),
                                                    self.parsed_frames)
-            with open(os.path.join(TEST_DIR_EXPECTED, "test_analysis_resumed.yaml"), "r") as file_handler:
+            with open(os.path.join(TEST_DIR_EXPECTED, "analysis_resumed.yaml"), "r") as file_handler:
                 expected = yaml.safe_load(file_handler.read())
             for key in actual["H bonds"]:
                 np.testing.assert_array_equal(actual["H bonds"][key], expected["H bonds"][key])
@@ -103,71 +101,59 @@ class TestTrajectories(unittest.TestCase):
             self.assertEqual(actual["topology file"], expected["topology file"])
             self.assertListEqual(actual["trajectory files"], expected["trajectory files"])
         self.assertEqual(cm_logs.records[0].getMessage(), f"resumed analysis from YAML file: "
-                                                          f"{os.path.join(TEST_DIR_EXPECTED, 'test_analysis.yaml')}")
+                                                          f"{os.path.join(TEST_DIR_EXPECTED, 'analysis.yaml')}")
         # test resume with discrepancies
         self.assertRaises(KeyError, resume_or_initialize_analysis, self.inputs,
-                          os.path.join(TEST_DIR_EXPECTED, "test_analysis.yaml"), "John Doe", 5.0, 200, 90.0,
-                          self.nanoseconds, os.path.join(TEST_DIR_EXPECTED,
-                                                         "test_analysis.yaml"),
+                          os.path.join(TEST_DIR_EXPECTED, "analysis.yaml"), "John Doe", 5.0, 200, 90.0,
+                          self.nanoseconds, os.path.join(TEST_DIR_EXPECTED, "analysis.yaml"),
                           self.parsed_frames)
 
     def test_load_trajectory(self):
-        self.assertEqual(self.traj1.n_frames, 15)
+        traj = load_trajectory(self.inputs[0], self.topology, self.parsed_frames)
+        self.assertEqual(traj.n_frames, 15)
         self.assertRaises(IndexError, load_trajectory, self.inputs[0], os.path.join(TEST_DIR_INPUTS, "test_data.parm"),
                           {"test_data_20-frames.nc": {"begin": 5, "end": 100}})
 
     def test_check_trajectories_consistency(self):
-        with open(os.path.join(TEST_DIR_EXPECTED, "test_analysis.yaml"), "r") as file_handler:
+        with open(os.path.join(TEST_DIR_EXPECTED, "analysis.yaml"), "r") as file_handler:
             expected = yaml.safe_load(file_handler.read())
             del expected["H bonds"]
             del expected["parameters"]
             del expected["sample"]
             del expected["topology file"]
             del expected["trajectory files"]
-        with open(os.path.join(TEST_DIR_EXPECTED, "test_check_consistency.yaml"), "r") as file_handler:
+        with open(os.path.join(TEST_DIR_EXPECTED, "check_consistency.yaml"), "r") as file_handler:
             actual_data1 = yaml.safe_load(file_handler.read())
-        actual1 = check_trajectories_consistency(self.traj2, self.inputs[1], actual_data1)
+        traj = load_trajectory(self.inputs[1], self.topology, self.parsed_frames)
+        actual1 = check_trajectories_consistency(traj, self.inputs[1], actual_data1)
         self.assertDictEqual(actual1, expected)
-        with open(os.path.join(TEST_DIR_EXPECTED, "test_check_consistency.yaml"), "r") as file_handler:
+        with open(os.path.join(TEST_DIR_EXPECTED, "check_consistency.yaml"), "r") as file_handler:
             actual_data2 = yaml.safe_load(file_handler.read())
         del actual_data2["residues"]
-        actual2 = check_trajectories_consistency(self.traj2, self.inputs[1], copy.copy(actual_data2))
+        actual2 = check_trajectories_consistency(traj, self.inputs[1], copy.copy(actual_data2))
         self.assertDictEqual(actual2, expected)
         actual_data2["residues"] = 10
-        self.assertRaises(ValueError, check_trajectories_consistency, self.traj2, self.inputs[1], actual_data2)
+        self.assertRaises(ValueError, check_trajectories_consistency, traj, self.inputs[1], actual_data2)
         actual_data2["residues"] = 73
         actual_data2["atoms"] = 10000
-        self.assertRaises(ValueError, check_trajectories_consistency, self.traj2, self.inputs[1], actual_data2)
+        self.assertRaises(ValueError, check_trajectories_consistency, traj, self.inputs[1], actual_data2)
         actual_data2["atoms"] = 1041
         actual_data2["molecules"] = 1000
-        self.assertRaises(ValueError, check_trajectories_consistency, self.traj2, self.inputs[1], actual_data2)
+        self.assertRaises(ValueError, check_trajectories_consistency, traj, self.inputs[1], actual_data2)
 
-        # def test_record_analysis_parameters(self):
-    #     observed_path = os.path.join(self.tmp_dir, os.path.join(f"{self.sample}_analysis_parameters.yaml"))
-    #     record_analysis_yaml(self.tmp_dir, self.sample, self.traj, self.dist_cutoff, self.angle_cutoff,
-    #                          self.pct_cutoff, self.frames, self.md_time)
-    #     with open(observed_path, "r") as file_handler:
-    #         observed = yaml.safe_load(file_handler.read())
-    #         self.assertEqual(observed, self.parameters)
+    def test_filter_hbonds(self):
+        expected_filter_hbonds = pd.read_csv(os.path.join(TEST_DIR_EXPECTED, "filtered_hbonds.csv"))
+        pd.testing.assert_frame_equal(expected_filter_hbonds,
+                                      filter_hbonds(self.analysis_yaml,
+                                                    re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")))
 
-    # def test_hydrogen_bonds(self):
-    #     unique_id = str(uuid.uuid1())
-    #     h_bonds = hydrogen_bonds(self.traj, self.dist_thr, self.contacts_frame_thr_2nd_half, self.pattern_contact,
-    #                              self.tmp_dir, unique_id)
-    #     path_observed = os.path.join(self.tmp_dir, unique_id)
-    #     h_bonds.to_csv(path_observed, index=False)
-    #     with open(path_observed, "r") as observed_file:
-    #         observed = "".join(observed_file.readlines())
-    #     self.assertEqual(observed, self.h_bonds)
-    #
-    # def test_contacts_csv(self):
-    #     unique_id = str(uuid.uuid1())
-    #     h_bonds = hydrogen_bonds(self.traj, self.dist_thr, self.contacts_frame_thr_2nd_half, self.pattern_contact,
-    #                              self.tmp_dir, unique_id)
-    #     _ = contacts_csv(h_bonds, self.tmp_dir, unique_id, self.pattern_contact, self.limits)
-    #     with open(os.path.join(self.tmp_dir, f"contacts_{unique_id}.csv"), "r") as observed_file:
-    #         observed_contacts = "".join(observed_file.readlines())
-    #     self.assertEqual(observed_contacts, self.contacts)
+    def test_contacts_csv(self):
+        #todo: write the test
+        pass
+
+    def test_record_analysis_yaml(self):
+        # todo: write the test
+        pass
 
 
 if __name__ == "__main__":

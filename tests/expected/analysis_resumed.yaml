@@ -634,7 +634,7 @@ parameters:
   proportion contacts: 50.0
   time: 1 ns
 residues: 73
-sample: test
+sample: sample test
 size Gb: 0.000814385712146759
 topology file: test_data.parm
 trajectory files:

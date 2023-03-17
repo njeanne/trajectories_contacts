@@ -4,7 +4,7 @@ parameters:
   maximal atoms distance: 3.0
   proportion contacts: 50.0
   time: 1 ns
-sample: test
+sample: sample test
 size Gb: 0
 topology file: test_data.parm
 trajectory files:

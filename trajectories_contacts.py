@@ -403,8 +403,7 @@ def filter_hbonds(analysis_data, pattern):
                                   f"{pct_contacts:.1f}% < {analysis_data['parameters']['proportion contacts']:.1f}% "
                                   f"threshold ({len(distances)}/{analysis_data['frames']} frames with H bonds).")
         else:
-            logging.error(f"no match for pattern '{pattern.pattern}' in donor/acceptor '{donor_acceptor}'")
-            sys.exit(1)
+            raise Exception(f"no match for pattern '{pattern.pattern}' in donor/acceptor '{donor_acceptor}'")
     nb_used_contacts = len(analysis_data["H bonds"]) - intra_residue_contacts - inter_residue_contacts_failed_thr
     logging.info(f"\t{intra_residue_contacts}/{len(analysis_data['H bonds'])} hydrogen bonds with intra residues "
                  f"atoms contacts discarded.")
@@ -601,7 +600,11 @@ if __name__ == "__main__":
 
     # filter the hydrogen bonds
     pattern_donor_acceptor = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
-    filtered_hydrogen_bonds = filter_hbonds(data_traj, pattern_donor_acceptor)
+    try:
+        filtered_hydrogen_bonds = filter_hbonds(data_traj, pattern_donor_acceptor)
+    except Exception as exc:
+        logging.error(exc, exc_info=True)
+        sys.exit(1)
     # write the CSV for the contacts
     stats = contacts_csv(filtered_hydrogen_bonds, args.out, args.sample, pattern_donor_acceptor)
 
