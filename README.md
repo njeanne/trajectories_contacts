@@ -29,30 +29,42 @@ conda activate traj
 
 ## Usage
 
-The script can be tested with the test data provided in the `data` directory, which contains a trajectory file 
-`traj_test.nc` with 2000 frames and the topology associated file `traj_test.parm`. The commands are:
+The script can be tested with the test data provided in the `tests/test_files` directory, which contains the trajectory 
+files `test_data_20-frames.nc` and `test_data_20-frames_2.nc` with 20 frames and the topology associated file \
+`test_data.parm`. The commands are:
 
 ```shell script
 conda activate traj
 
-./trajectories_contacts.py --frames 500-2000 --chunk 500 --proportion-contacts 50.0 \
---distance-contacts 3.0 --angle-cutoff 135  --out results/traj_test --md-time "2 ns"\
---sample "trajectory test" --topology data/traj_test.parm  data/traj_test.nc
+./trajectories_contacts.py --frames test_data_20-frames.nc:5-20 --proportion-contacts 50.0 --distance-contacts 3.0 \
+--angle-cutoff 135 --nanoseconds 1 --out results/traj_test --sample "trajectory test" \
+--topology tests/test_files/test_data.parm tests/test_files/test_data_20-frames.nc \
+tests/test_files/test_data_20-frames_2.nc
 
 conda deactivate
 ```
 
 The optional parameter used are:
-- `--frames 500-2000`: selection of the frames 500 to 2000.
-- `--chunk 500`: the search for hydrogen bonds will be performed on chunks of the rajectory of size 500.
+- `--frames test_data_20-frames.nc:5-20`: selection of the frames 5 to 20 from the file `test_data_20-frames.nc`.
 - `--proportion-contacts 50.0`: a contact is validated only if it is at least present in 50% of the frames 500 to 2000.
 - `--distance-contacts 3.0`: maximal distance in Angstroms between 2 atoms of different residues.
 - `--angle-cutoff 135`: the minimal angle in a contact between a donor/hydrogen/acceptor.
-- `--md-time`: the molecular dynamics simulation duration.
+- `--nanoseconds`: the molecular dynamics simulation duration.
+
+If the analysis resumes a previous analysis, use the `--resume` parameter with the path of the YAML file of the 
+previous analysis as argument:
+
+```shell script
+./trajectories_contacts.py --frames test_data_20-frames.nc:5-20 --proportion-contacts 50.0 --distance-contacts 3.0 \
+--angle-cutoff 135 --nanoseconds 1 --out results/traj_test --sample "trajectory test" \
+--resume tests/expected/analysis_resumed.yaml --topology tests/test_files/test_data.parm \
+tests/test_files/test_data_20-frames.nc tests/test_files/test_data_20-frames_2.nc
+```
 
 ## Outputs
 
 The script outputs are:
-- a CSV file of the contacts by residue.
-- a YAML file of the parameters used for this analysis. This file will be used for the script that creates the plots.
+- a YAML file of the parameters used for this analysis and the hydrogen bonds found. This file will be used for the 
+script that creates the plots and can also be used to resume the analysis with new trajectory files to continue the 
+molecular dynamic analysis. 
 - a CSV file of the contacts with the median of the distances of the selected frames.
