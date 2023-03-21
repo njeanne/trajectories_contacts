@@ -5,11 +5,8 @@ __license__ = "GNU General Public License"
 __version__ = "3.0.0"
 __email__ = "jeanne.n@chu-toulouse.fr"
 
-import argparse
-import os
-import re
+
 import shutil
-import sys
 import tempfile
 import unittest
 import uuid
@@ -23,9 +20,9 @@ TEST_DIR_EXPECTED = os.path.join(TEST_DIR, "expected")
 TEST_DIR_INPUTS = os.path.join(TEST_DIR, "test_files")
 
 
-# def format_csv(path):
-#     with open(path, "r") as csv_file:
-#         return "".join(csv_file.readlines())
+def format_csv(path):
+    with open(path, "r") as csv_file:
+        return "".join(csv_file.readlines())
 
 
 class TestTrajectories(unittest.TestCase):
@@ -47,8 +44,7 @@ class TestTrajectories(unittest.TestCase):
         self.topology = os.path.join(TEST_DIR_INPUTS, "test_data.parm")
         with open(os.path.join(TEST_DIR_EXPECTED, "analysis.yaml"), "r") as file_handler:
             self.analysis_yaml = yaml.safe_load(file_handler.read())
-        # self.contacts = format_csv(os.path.join(TEST_FILES_DIR,
-        #                                         "contacts_JQ679014_hinge_WT_ranked_0_20-frames_mask-25-45.csv"))
+        self.df_contacts = filter_hbonds(self.analysis_yaml, self.pattern_contact)
 
     def tearDown(self):
         # Clean temporary files
@@ -143,17 +139,12 @@ class TestTrajectories(unittest.TestCase):
 
     def test_filter_hbonds(self):
         expected_filter_hbonds = pd.read_csv(os.path.join(TEST_DIR_EXPECTED, "filtered_hbonds.csv"))
-        pd.testing.assert_frame_equal(expected_filter_hbonds,
-                                      filter_hbonds(self.analysis_yaml,
-                                                    re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")))
+        pd.testing.assert_frame_equal(expected_filter_hbonds, self.df_contacts)
 
     def test_contacts_csv(self):
-        #todo: write the test
-        pass
-
-    def test_record_analysis_yaml(self):
-        # todo: write the test
-        pass
+        expected = pd.read_csv(os.path.join(TEST_DIR_EXPECTED, "contacts_by_residue.csv"))
+        actual = contacts_csv(self.df_contacts, self.tmp_dir, self.sample, self.pattern_contact)
+        pd.testing.assert_frame_equal(expected, actual)
 
 
 if __name__ == "__main__":
