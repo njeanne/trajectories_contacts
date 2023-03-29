@@ -233,37 +233,36 @@ def load_trajectory(trajectory_file, topology_file, frames_sel):
     :rtype: pytraj.Trajectory
     """
     logging.info(f"\tLoading trajectory file, please be patient..")
-    # if trajectory_file in frames_sel:
-    #     traj = pt.iterload(trajectory_file, top=topology_file,
-    #                        frames_indices=range(frames_sel[trajectory_file]["begin"] - 1,
-    #                                             frames_sel[trajectory_file]["end"] - 1))
-    # else:
-    traj = pt.iterload(trajectory_file, top=topology_file)
+    if trajectory_file in frames_sel:
+        traj = pt.iterload(trajectory_file, top=topology_file,
+                           frames_indices=range(frames_sel[trajectory_file]["begin"] - 1,
+                                                frames_sel[trajectory_file]["end"] - 1))
+    else:
+        traj = pt.iterload(trajectory_file, top=topology_file)
     logging.info(f"\t\tMolecules:{traj.topology.n_mols:>20}")
     logging.info(f"\t\tResidues:{traj.topology.n_residues:>22}")
     logging.info(f"\t\tAtoms:{traj.topology.n_atoms:>27}")
     logging.info(f"\t\tTrajectory total frames:{traj.n_frames:>7}")
     logging.info(f"\t\tTrajectory memory size:{round(traj._estimated_GB, 6):>14} Gb")
-    # if os.path.basename(trajectory_file) in frames_sel:
-    #     traj_bn = os.path.basename(trajectory_file)
-    #     if frames_sel[traj_bn]["end"] > traj.n_frames:
-    #         raise IndexError(f"Selected upper frame limit for {traj_bn} ({frames_sel[traj_bn]['end']}) from "
-    #                          f"--frames argument is greater than the total frames number ({traj.n_frames}) of the MD "
-    #                          f"trajectory.")
-    #     frames_range = range(frames_sel[traj_bn]["begin"], frames_sel[traj_bn]["end"])
-    #     if frames_sel[traj_bn]["begin"] == 1:
-    #         frames_range[0] = 0
-    #     traj = traj[frames_range]
-    #     print(f"type traj modified: {type(traj)}")
-    #     logging.info(f"\t\tSelected frames:{frames_sel[traj_bn]['begin']:>14} to {frames_sel[traj_bn]['end']}")
-    #     logging.info(f"\t\tSelected frames memory size:{round(traj._estimated_GB, 6):>9} GB")
-    # else:
-    #     txt = f"1 to {traj.n_frames}"
-    #     logging.info(f"\t\tSelected frames:{txt:>20}")
+    if os.path.basename(trajectory_file) in frames_sel:
+        traj_bn = os.path.basename(trajectory_file)
+        if frames_sel[traj_bn]["end"] > traj.n_frames:
+            raise IndexError(f"Selected upper frame limit for {traj_bn} ({frames_sel[traj_bn]['end']}) from "
+                             f"--frames argument is greater than the total frames number ({traj.n_frames}) of the MD "
+                             f"trajectory.")
+        frames_range = range(frames_sel[traj_bn]["begin"], frames_sel[traj_bn]["end"])
+        if frames_sel[traj_bn]["begin"] == 1:
+            frames_range[0] = 0
+        traj = traj[frames_range]
+        logging.info(f"\t\tSelected frames:{frames_sel[traj_bn]['begin']:>14} to {frames_sel[traj_bn]['end']}")
+        logging.info(f"\t\tSelected frames memory size:{round(traj._estimated_GB, 6):>9} GB")
+    else:
+        txt = f"1 to {traj.n_frames}"
+        logging.info(f"\t\tSelected frames:{txt:>20}")
     return traj
 
 
-def check_trajectories_consistency(traj, path, data):
+def check_trajectories_consistency(traj, path, data, frames_sel):
     """
     Check if the trajectory attributes match with the previous trajectories.
 
@@ -273,6 +272,8 @@ def check_trajectories_consistency(traj, path, data):
     :type path: str
     :param data: the trajectories data.
     :type data: dict
+    :param frames_sel: the frames selection on the trajectory files.
+    :type frames_sel: dict
     :return: the updated trajectories data.
     :rtype: dict
     """
@@ -293,12 +294,17 @@ def check_trajectories_consistency(traj, path, data):
             raise ValueError(f"the molecules number ({traj.topology.n_mols}) is different from the molecules number of "
                              f"the previous trajectories ({data['molecules']}), check if {os.path.basename(path)} "
                              f"is from the same trajectory than the previous ones.")
+    if frames_sel:
+        if "frames selection" not in data:
+            data["frames selection"] = {}
+            for traj_name in frames_sel:
+                data["frames selection"][traj_name] = frames_sel[traj_name]
     data["size Gb"] += traj._estimated_GB
     data["frames"] += traj.n_frames
     return data
 
 
-def hydrogen_bonds(inspected_traj, data, atoms_dist, angle, out_dir, id_traj, n_cores):
+def hydrogen_bonds(inspected_traj, data, atoms_dist, angle):
     """
     Extract the hydrogen bonds and add the distances values.
 
@@ -310,30 +316,15 @@ def hydrogen_bonds(inspected_traj, data, atoms_dist, angle, out_dir, id_traj, n_
     :type atoms_dist: float
     :param angle: the angle cutoff for the hydrogen bonds.
     :type angle: int
-    :param out_dir: the path to the output directory.
-    :type out_dir: str
-    :param id_traj: the ID of the trajectory.
-    :type id_traj: str
-    :param n_cores: number of cores.
-    :type n_cores: int
     :return: the updated trajectories data.
     :rtype: dict
     """
-    logging.info("\tsearch for hydrogen bonds:")
+    logging.info("\tsearch for hydrogen bonds, please be patient..")
+
     # search hydrogen bonds with distance < atoms distance threshold and angle > angle cut-off.
-    # h_bonds = pt.search_hbonds(inspected_traj, distance=atoms_dist, angle=angle)
-    print(type(inspected_traj))
-    # h_bonds = pt.pmap(pt.search_hbonds, inspected_traj, distance=atoms_dist, angle=angle, n_cores=n_cores)
-    h_bonds = pt.pmap(pt.search_hbonds, inspected_traj, n_cores=n_cores)
-    sys.exit()
+    h_bonds = pt.search_hbonds(inspected_traj, distance=atoms_dist, angle=angle)
     # get the distances
-    # distances = pt.distance(inspected_traj, h_bonds.get_amber_mask()[0]))
-    distances = pt.pmap(pt.distance, inspected_traj, mask=h_bonds.get_amber_mask()[0], n_cores=n_cores)
-    # pickles the Hydrogen bonds and distances
-    pt.to_pickle(h_bonds, os.path.join(out_dir, f"h-bond_{id_traj}.pk"))
-    logging.info(f"\t\tHydrogen bonds search saved: os.path.join(out_dir, f'h-bond_{id_traj}.pk')")
-    pt.to_pickle(h_bonds, os.path.join(out_dir, f"h-bond_distances_{id_traj}.pk"))
-    logging.info(f"\t\tHydrogen bonds distances saved: os.path.join(out_dir, f'h-bond_distances_{id_traj}.pk')")
+    distances = pt.distance(inspected_traj, mask=h_bonds.get_amber_mask()[0])
     # filter the Hydrogen bonds
     if "H bonds" not in data:
         data["H bonds"] = {}
@@ -349,6 +340,26 @@ def hydrogen_bonds(inspected_traj, data, atoms_dist, angle, out_dir, id_traj, n_
     logging.info(f"\t\t{len(data['H bonds'])} hydrogen bonds found in the {inspected_traj.n_frames} frames of the "
                  f"trajectory.")
     return data
+
+
+def record_analysis_yaml(data, out_dir, current_analysis):
+    """
+    Record the analysis in a YAML file.
+
+    :param data: the trajectory analysis data.
+    :type data: dict
+    :param out_dir: the path to the output directory.
+    :type out_dir: str
+    :param current_analysis: the current trajectory analysis.
+    :type current_analysis: str
+    """
+    out = os.path.join(out_dir, f"{current_analysis}_analysis.yaml")
+    tmp = copy.copy(data)
+    for h_bond in tmp["H bonds"]:
+        tmp["H bonds"][h_bond] = tmp["H bonds"][h_bond].tolist()
+    with open(out, "w") as file_handler:
+        yaml.dump(tmp, file_handler)
+    logging.info(f"\t\tAnalysis saved: {os.path.abspath(out)}")
 
 
 def sort_contacts(contact_names, pattern):
@@ -491,26 +502,6 @@ def contacts_csv(df, out_dir, smp, pattern):
     return contacts_stat
 
 
-def record_analysis_yaml(out_dir, smp, data):
-    """
-    Record the analysis in a YAML file.
-
-    :param out_dir: the path to the output directory.
-    :type out_dir: str
-    :param smp: the sample name.
-    :type smp: str
-    :param data: the trajectory analysis data.
-    :type data: dict
-    """
-    out = os.path.join(out_dir, f"{smp.replace(' ', '_')}_analysis.yaml")
-    tmp = copy.copy(data)
-    for h_bond in tmp["H bonds"]:
-        tmp["H bonds"][h_bond] = tmp["H bonds"][h_bond].tolist()
-    with open(out, "w") as file_handler:
-        yaml.dump(tmp, file_handler)
-    logging.info(f"Analysis parameter YAML file: {os.path.abspath(out)}")
-
-
 if __name__ == "__main__":
     descr = f"""
     {os.path.basename(__file__)} v. {__version__}
@@ -557,7 +548,6 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--proportion-contacts", required=False, type=restricted_float, default=20.0,
                         help="the minimal percentage of frames which make contact between 2 atoms of different "
                              "residues in the selected frame of the molecular dynamics simulation, default is 20%%.")
-    parser.add_argument("-c", "--cores", required=False, type=int,  help="cores for computation parallelization.")
     parser.add_argument("-r", "--resume", required=False, type=str,
                         help="the YAML file path of the previous trajectory analysis. The analysis of the new "
                              "trajectory files of the same system will resume on the previous trajectory analysis. The "
@@ -588,17 +578,6 @@ if __name__ == "__main__":
     logging.info(f"Angle minimal cut-off: {args.angle_cutoff:>27}°")
     logging.info(f"Minimal frames proportion with atoms contacts: {args.proportion_contacts:.1f}%")
 
-    # set the number of cores for the analysis
-    cores = 1
-    if args.cores:
-        if args.cores > os.cpu_count():
-            cores = os.cpu_count()
-            logging.warning(f"{args.cores} cores booked exceed the maximal available cores ({os.cpu_count()}), booked "
-                            f"cores adjusted.")
-        else:
-            cores = args.cores
-    logging.info(f"Cores used for computation: {cores:>22}")
-
     try:
         frames_selection = parse_frames(args.frames, args.inputs)
     except argparse.ArgumentTypeError as ex:
@@ -619,7 +598,7 @@ if __name__ == "__main__":
         logging.info(f"Processing trajectory file: {traj_id}")
         try:
             trajectory = load_trajectory(traj_file, args.topology, frames_selection)
-            data_traj = check_trajectories_consistency(trajectory, traj_file, data_traj)
+            data_traj = check_trajectories_consistency(trajectory, traj_file, data_traj, frames_selection)
         except RuntimeError as exc:
             logging.error(f"Check if the topology ({args.topology}) and/or the trajectory ({', '.join(args.inputs)}) "
                           f"files exists", exc_info=True)
@@ -632,8 +611,10 @@ if __name__ == "__main__":
             sys.exit(1)
 
         # find the Hydrogen bonds
-        data_traj = hydrogen_bonds(trajectory, data_traj, args.distance_contacts, args.angle_cutoff, args.out, traj_id,
-                                   cores)
+        data_traj = hydrogen_bonds(trajectory, data_traj, args.distance_contacts, args.angle_cutoff)
+
+        # record the analysis in a yaml file
+        record_analysis_yaml(data_traj, args.out, traj_id)
 
     # filter the hydrogen bonds
     pattern_donor_acceptor = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
@@ -651,5 +632,3 @@ if __name__ == "__main__":
     logging.info(f"Whole trajectories frames: {data_traj['frames']:>16}")
     logging.info(f"Whole trajectories hydrogen bonds found: {len(filtered_hydrogen_bonds)}")
 
-    # record the analysis parameter in a yaml file
-    record_analysis_yaml(args.out, args.sample, data_traj)
