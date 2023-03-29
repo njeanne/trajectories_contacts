@@ -233,27 +233,33 @@ def load_trajectory(trajectory_file, topology_file, frames_sel):
     :rtype: pytraj.Trajectory
     """
     logging.info(f"\tLoading trajectory file, please be patient..")
-    traj = pt.iterload(trajectory_file, top=topology_file, )
+    # if trajectory_file in frames_sel:
+    #     traj = pt.iterload(trajectory_file, top=topology_file,
+    #                        frames_indices=range(frames_sel[trajectory_file]["begin"] - 1,
+    #                                             frames_sel[trajectory_file]["end"] - 1))
+    # else:
+    traj = pt.iterload(trajectory_file, top=topology_file)
     logging.info(f"\t\tMolecules:{traj.topology.n_mols:>20}")
     logging.info(f"\t\tResidues:{traj.topology.n_residues:>22}")
     logging.info(f"\t\tAtoms:{traj.topology.n_atoms:>27}")
     logging.info(f"\t\tTrajectory total frames:{traj.n_frames:>7}")
     logging.info(f"\t\tTrajectory memory size:{round(traj._estimated_GB, 6):>14} Gb")
-    if os.path.basename(trajectory_file) in frames_sel:
-        traj_bn = os.path.basename(trajectory_file)
-        if frames_sel[traj_bn]["end"] > traj.n_frames:
-            raise IndexError(f"Selected upper frame limit for {traj_bn} ({frames_sel[traj_bn]['end']}) from "
-                             f"--frames argument is greater than the total frames number ({traj.n_frames}) of the MD "
-                             f"trajectory.")
-        frames_range = range(frames_sel[traj_bn]["begin"], frames_sel[traj_bn]["end"])
-        if frames_sel[traj_bn]["begin"] == 1:
-            frames_range[0] = 0
-        traj = traj[frames_range]
-        logging.info(f"\t\tSelected frames:{frames_sel[traj_bn]['begin']:>14} to {frames_sel[traj_bn]['end']}")
-        logging.info(f"\t\tSelected frames memory size:{round(traj._estimated_GB, 6):>9} GB")
-    else:
-        txt = f"1 to {traj.n_frames}"
-        logging.info(f"\t\tSelected frames:{txt:>20}")
+    # if os.path.basename(trajectory_file) in frames_sel:
+    #     traj_bn = os.path.basename(trajectory_file)
+    #     if frames_sel[traj_bn]["end"] > traj.n_frames:
+    #         raise IndexError(f"Selected upper frame limit for {traj_bn} ({frames_sel[traj_bn]['end']}) from "
+    #                          f"--frames argument is greater than the total frames number ({traj.n_frames}) of the MD "
+    #                          f"trajectory.")
+    #     frames_range = range(frames_sel[traj_bn]["begin"], frames_sel[traj_bn]["end"])
+    #     if frames_sel[traj_bn]["begin"] == 1:
+    #         frames_range[0] = 0
+    #     traj = traj[frames_range]
+    #     print(f"type traj modified: {type(traj)}")
+    #     logging.info(f"\t\tSelected frames:{frames_sel[traj_bn]['begin']:>14} to {frames_sel[traj_bn]['end']}")
+    #     logging.info(f"\t\tSelected frames memory size:{round(traj._estimated_GB, 6):>9} GB")
+    # else:
+    #     txt = f"1 to {traj.n_frames}"
+    #     logging.info(f"\t\tSelected frames:{txt:>20}")
     return traj
 
 
@@ -316,7 +322,10 @@ def hydrogen_bonds(inspected_traj, data, atoms_dist, angle, out_dir, id_traj, n_
     logging.info("\tsearch for hydrogen bonds:")
     # search hydrogen bonds with distance < atoms distance threshold and angle > angle cut-off.
     # h_bonds = pt.search_hbonds(inspected_traj, distance=atoms_dist, angle=angle)
-    h_bonds = pt.pmap(pt.search_hbonds, inspected_traj, distance=atoms_dist, angle=angle, n_cores=n_cores)
+    print(type(inspected_traj))
+    # h_bonds = pt.pmap(pt.search_hbonds, inspected_traj, distance=atoms_dist, angle=angle, n_cores=n_cores)
+    h_bonds = pt.pmap(pt.search_hbonds, inspected_traj, n_cores=n_cores)
+    sys.exit()
     # get the distances
     # distances = pt.distance(inspected_traj, h_bonds.get_amber_mask()[0]))
     distances = pt.pmap(pt.distance, inspected_traj, mask=h_bonds.get_amber_mask()[0], n_cores=n_cores)
@@ -580,13 +589,15 @@ if __name__ == "__main__":
     logging.info(f"Minimal frames proportion with atoms contacts: {args.proportion_contacts:.1f}%")
 
     # set the number of cores for the analysis
-    print(os.cpu_count())
+    cores = 1
     if args.cores:
-        cores = args.cores
-    else:
-        cores = 1
-        logging.info(f"Cores used for computation: {cores:>17}")
-    sys.exit()
+        if args.cores > os.cpu_count():
+            cores = os.cpu_count()
+            logging.warning(f"{args.cores} cores booked exceed the maximal available cores ({os.cpu_count()}), booked "
+                            f"cores adjusted.")
+        else:
+            cores = args.cores
+    logging.info(f"Cores used for computation: {cores:>22}")
 
     try:
         frames_selection = parse_frames(args.frames, args.inputs)
