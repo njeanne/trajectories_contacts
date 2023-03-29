@@ -548,6 +548,7 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--proportion-contacts", required=False, type=restricted_float, default=20.0,
                         help="the minimal percentage of frames which make contact between 2 atoms of different "
                              "residues in the selected frame of the molecular dynamics simulation, default is 20%%.")
+    parser.add_argument("-c", "--cores", required=False, type=int,  help="cores for computation parallelization.")
     parser.add_argument("-r", "--resume", required=False, type=str,
                         help="the YAML file path of the previous trajectory analysis. The analysis of the new "
                              "trajectory files of the same system will resume on the previous trajectory analysis. The "
@@ -577,6 +578,15 @@ if __name__ == "__main__":
     logging.info(f"Atoms maximal contacts distance threshold: {args.distance_contacts:>7} \u212B")
     logging.info(f"Angle minimal cut-off: {args.angle_cutoff:>27}°")
     logging.info(f"Minimal frames proportion with atoms contacts: {args.proportion_contacts:.1f}%")
+
+    # set the number of cores for the analysis
+    print(os.cpu_count())
+    if args.cores:
+        cores = args.cores
+    else:
+        cores = 1
+        logging.info(f"Cores used for computation: {cores:>17}")
+    sys.exit()
 
     try:
         frames_selection = parse_frames(args.frames, args.inputs)
