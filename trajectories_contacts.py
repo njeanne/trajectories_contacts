@@ -292,7 +292,7 @@ def check_trajectories_consistency(traj, path, data):
     return data
 
 
-def hydrogen_bonds(inspected_traj, data, atoms_dist, angle):
+def hydrogen_bonds(inspected_traj, data, atoms_dist, angle, out_dir, id_traj, n_cores):
     """
     Extract the hydrogen bonds and add the distances values.
 
@@ -304,14 +304,28 @@ def hydrogen_bonds(inspected_traj, data, atoms_dist, angle):
     :type atoms_dist: float
     :param angle: the angle cutoff for the hydrogen bonds.
     :type angle: int
+    :param out_dir: the path to the output directory.
+    :type out_dir: str
+    :param id_traj: the ID of the trajectory.
+    :type id_traj: str
+    :param n_cores: number of cores.
+    :type n_cores: int
     :return: the updated trajectories data.
     :rtype: dict
     """
     logging.info("\tsearch for hydrogen bonds:")
     # search hydrogen bonds with distance < atoms distance threshold and angle > angle cut-off.
-    h_bonds = pt.search_hbonds(inspected_traj, distance=atoms_dist, angle=angle)
+    # h_bonds = pt.search_hbonds(inspected_traj, distance=atoms_dist, angle=angle)
+    h_bonds = pt.pmap(pt.search_hbonds, inspected_traj, distance=atoms_dist, angle=angle, n_cores=n_cores)
     # get the distances
-    distances = pt.distance(inspected_traj, h_bonds.get_amber_mask()[0])
+    # distances = pt.distance(inspected_traj, h_bonds.get_amber_mask()[0]))
+    distances = pt.pmap(pt.distance, inspected_traj, mask=h_bonds.get_amber_mask()[0], n_cores=n_cores)
+    # pickles the Hydrogen bonds and distances
+    pt.to_pickle(h_bonds, os.path.join(out_dir, f"h-bond_{id_traj}.pk"))
+    logging.info(f"\t\tHydrogen bonds search saved: os.path.join(out_dir, f'h-bond_{id_traj}.pk')")
+    pt.to_pickle(h_bonds, os.path.join(out_dir, f"h-bond_distances_{id_traj}.pk"))
+    logging.info(f"\t\tHydrogen bonds distances saved: os.path.join(out_dir, f'h-bond_distances_{id_traj}.pk')")
+    # filter the Hydrogen bonds
     if "H bonds" not in data:
         data["H bonds"] = {}
     # record the distances of all hydrogen bonds (donors-acceptors) detected in the chunk
@@ -580,7 +594,8 @@ if __name__ == "__main__":
 
     for traj_file in args.inputs:
         # load the trajectory
-        logging.info(f"Processing trajectory file: {os.path.splitext(os.path.basename(traj_file))[0]}")
+        traj_id = os.path.splitext(os.path.basename(traj_file))[0]
+        logging.info(f"Processing trajectory file: {traj_id}")
         try:
             trajectory = load_trajectory(traj_file, args.topology, frames_selection)
             data_traj = check_trajectories_consistency(trajectory, traj_file, data_traj)
@@ -596,7 +611,8 @@ if __name__ == "__main__":
             sys.exit(1)
 
         # find the Hydrogen bonds
-        data_traj = hydrogen_bonds(trajectory, data_traj, args.distance_contacts, args.angle_cutoff)
+        data_traj = hydrogen_bonds(trajectory, data_traj, args.distance_contacts, args.angle_cutoff, args.out, traj_id,
+                                   cores)
 
     # filter the hydrogen bonds
     pattern_donor_acceptor = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
