@@ -73,7 +73,7 @@ def create_log(path, level):
 
     :param path: the path of the log.
     :type path: str
-    :param level: the level og the log.
+    :param level: the level of the log.
     :type level: str
     :return: the logging:
     :rtype: logging
@@ -112,6 +112,7 @@ def parse_frames(frames_selections, traj_files_paths):
     :rtype: dict
     """
     data = {}
+    # the pattern to get the beginning and the end of the frames selection
     pattern = re.compile("(.+):(\\d+)-(\\d+)")
 
     if frames_selections:
