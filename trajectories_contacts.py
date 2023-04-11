@@ -88,7 +88,7 @@ def create_log(path, level):
     if level is None:
         log_level = log_level_dict["INFO"]
     else:
-        log_level = log_level_dict[args.log_level]
+        log_level = log_level_dict[level]
 
     if os.path.exists(path):
         os.remove(path)
@@ -178,6 +178,8 @@ def resume_or_initialize_analysis(trajectory_files, topology_file, smp, distance
                 logging.warning(
                     f"\t{t_file} already processed in the previous analysis (check the YAML file, section 'trajectory "
                     f"files processed'), the trajectory analysis is skipped.")
+            else:
+                logging.debug(f"\t{t_file} will be processed.")
 
         discrepancies = []
         if data["sample"] != smp:
@@ -206,6 +208,7 @@ def resume_or_initialize_analysis(trajectory_files, topology_file, smp, distance
             raise KeyError(discrepancies_txt)
 
         # cast lists to numpy arrays
+        logging.debug(f"\tCasting previous Hydrogen bonds lists to numpy.arrays.")
         for h_bond in data["H bonds"]:
             data["H bonds"][h_bond] = np.array(data["H bonds"][h_bond])
 
@@ -243,11 +246,10 @@ def remove_processed_trajectories(all_traj, traj_to_skip, yaml_file):
     for traj_path in all_traj:
         if os.path.basename(traj_path) not in traj_to_skip:
             traj_to_process.append(traj_path)
-    if traj_to_process:
-        return traj_to_process
-    logging.error(f"All trajectories ({','.join(all_traj)}) have already been processed, check the 'trajectory files "
-                  f"processed' section of: {yaml_file}")
-    sys.exit(1)
+    if not traj_to_process:
+        logging.warning(f"All trajectories ({','.join(all_traj)}) have already been processed, check the 'trajectory "
+                        f"files processed' section of: {yaml_file}")
+    return traj_to_process
 
 
 def load_trajectory(trajectory_file, topology_file, frames_sel):
@@ -392,7 +394,8 @@ def record_analysis_yaml(data, out_dir, current_trajectory_file, smp):
     out = os.path.join(out_dir, f"{smp.replace(' ', '_')}_analysis.yaml")
     tmp = copy.copy(data)
     for h_bond in tmp["H bonds"]:
-        tmp["H bonds"][h_bond] = tmp["H bonds"][h_bond].tolist()
+        if not isinstance(tmp["H bonds"][h_bond], list):
+            tmp["H bonds"][h_bond] = tmp["H bonds"][h_bond].tolist()
     with open(out, "w") as file_handler:
         yaml.dump(tmp, file_handler)
     logging.info(f"\t\tAnalysis saved: {os.path.abspath(out)}")
