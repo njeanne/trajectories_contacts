@@ -112,11 +112,13 @@ def parse_frames(frames_selections, traj_files_paths):
     :return: the selected frames by trajectory file.
     :rtype: dict
     """
-    data = {}
+    frames_selection_data = {}
     # the pattern to get the beginning and the end of the frames selection
-    pattern = re.compile("(.+):(\\d+)-(\\d+)")
+    pattern = re.compile("(.+):(\\d+|\\*)-(\\d+|\\*)")
 
     if frames_selections:
+        start = 'the first frame'
+        end = 'the last frame'
         traj_basenames = [os.path.basename(traj_files_path) for traj_files_path in traj_files_paths]
         for frames_sel in frames_selections.split(","):
             match = pattern.search(frames_sel)
@@ -128,15 +130,20 @@ def parse_frames(frames_selections, traj_files_paths):
                     raise argparse.ArgumentTypeError(f"The trajectory file {current_traj} in frame selection part "
                                                      f"'{frames_sel}' is not a file belonging to the inputs trajectory "
                                                      f"files: {','.join(traj_basenames)}")
-                data[current_traj] = {"begin": int(start), "end": int(end)}
+                if start != "*":
+                    frames_selection_data[current_traj] = {"begin": int(start)}
+                if end != "*":
+                    if current_traj not in frames_selection_data:
+                        frames_selection_data[current_traj] = {"end": int(end)}
+                    else:
+                        frames_selection_data[current_traj]["end"] = int(end)
             else:
                 raise argparse.ArgumentTypeError(f"The frame selection part '{frames_sel}' do not match the correct "
                                                  f"pattern {pattern.pattern}'")
         logging.info("Frames selection on input trajectory files:")
-        for current_traj in data:
-            logging.info(f"\t{current_traj}: frames selection from {data[current_traj]['begin']} to "
-                         f"{data[current_traj]['end']}.")
-    return data
+        for current_traj in frames_selection_data:
+            logging.info(f"\t{current_traj}: frames selection from {start} to {end}.")
+    return frames_selection_data
 
 
 def resume_or_initialize_analysis(trajectory_files, topology_file, smp, distance_contacts, angle_cutoff,
@@ -178,7 +185,7 @@ def resume_or_initialize_analysis(trajectory_files, topology_file, smp, distance
                 trajectory_files_to_skip.append(t_file)
                 logging.warning(
                     f"\t{t_file} already processed in the previous analysis (check the YAML file, section 'trajectory "
-                    f"files processed'), the trajectory analysis is skipped.")
+                    f"files processed'), this trajectory analysis is skipped.")
 
         discrepancies = []
         if data["sample"] != smp:
@@ -207,8 +214,13 @@ def resume_or_initialize_analysis(trajectory_files, topology_file, smp, distance
             raise KeyError(discrepancies_txt)
 
         # load the H bonds from the pickle file
-        with open(data["pickle hydrogen bonds"], "rb") as file_handler:
-            data["H bonds"] = pickle.load(file_handler)
+        try:
+            with open(data["pickle hydrogen bonds"], "rb") as file_handler:
+                data["H bonds"] = pickle.load(file_handler)
+        except FileNotFoundError as fnf_ex:
+            logging.error(fnf_ex, exc_info=True)
+            sys.exit(1)
+
 
         # add frames selection in new trajectory files
         if frames_sel:
@@ -583,9 +595,10 @@ if __name__ == "__main__":
                         help="the molecular dynamics simulation time in nano seconds.")
     parser.add_argument("-f", "--frames", required=False, type=str,
                         help="the frames selection by trajectory file. The arguments should be <TRAJ_FILE>:100-1000. "
-                             "If the <TRAJ_FILE> contains 1000 frames, only the frames from 100-1000 will be selected."
+                             "If the <TRAJ_FILE> contains 2000 frames, only the frames from 100-1000 will be selected."
                              "Multiple frames selections can be performed with comma separators, i.e: "
-                             "'<TRAJ_FILE_1>:100-1000,<TRAJ_FILE_2>:1-500'")
+                             "'<TRAJ_FILE_1>:100-1000,<TRAJ_FILE_2>:1-500'. If a '*' is used as '<TRAJ_FILE_1>:100-*', "
+                             "the used frames will be the 100th until the end frame.")
     parser.add_argument("-d", "--distance-contacts", required=False, type=restricted_positive, default=3.0,
                         help="An hydrogen bond is defined as A-HD, where A is acceptor heavy atom, H is hydrogen, D is "
                              "donor heavy atom. An hydrogen bond is formed when A to D distance < distance. Default is "
@@ -662,10 +675,6 @@ if __name__ == "__main__":
 
         # find the Hydrogen bonds
         data_traj = hydrogen_bonds(trajectory, data_traj, args.distance_contacts, args.angle_cutoff)
-
-        # todo: remove
-        # # record the analysis in a yaml file
-        # record_analysis_yaml(data_traj, args.out, traj_file, args.sample)
 
         # pickle the analysis
         record_analysis(data_traj, args.out, traj_file, args.sample)
