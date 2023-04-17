@@ -10,7 +10,6 @@ __email__ = "jeanne.n@chu-toulouse.fr"
 __version__ = "3.0.0"
 
 import argparse
-import copy
 import logging
 import numpy as np
 import os
@@ -220,7 +219,6 @@ def resume_or_initialize_analysis(trajectory_files, topology_file, smp, distance
         except FileNotFoundError as fnf_ex:
             logging.error(fnf_ex, exc_info=True)
             sys.exit(1)
-
 
         # add frames selection in new trajectory files
         if frames_sel:
