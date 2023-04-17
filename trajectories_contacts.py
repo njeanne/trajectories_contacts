@@ -345,7 +345,7 @@ def check_trajectories_consistency(traj, path, data, frames_sel):
     return data
 
 
-def hydrogen_bonds(inspected_traj, data, atoms_dist, angle):
+def hydrogen_bonds(inspected_traj, data, atoms_dist, angle, cores):
     """
     Extract the hydrogen bonds and add the distances values.
 
@@ -357,14 +357,18 @@ def hydrogen_bonds(inspected_traj, data, atoms_dist, angle):
     :type atoms_dist: float
     :param angle: the angle cutoff for the hydrogen bonds.
     :type angle: int
+    :param cores: the number of cores for the computation parallelization.
+    :type cores: int
     :return: the updated trajectories data.
     :rtype: dict
     """
-    logging.info("\tsearch for hydrogen bonds, please be patient..")
     # search hydrogen bonds with distance < atoms distance threshold and angle > angle cut-off.
-    h_bonds = pt.search_hbonds(inspected_traj, distance=atoms_dist, angle=angle)
+    logging.info(f"\tSearch for hydrogen bonds, {cores} core{'s' if cores > 1 else ''} used, please be patient..")
+    h_bonds = pt.pmap(pt.search_hbonds, inspected_traj, distance=atoms_dist, angle=angle, n_cores=cores)
     # get the distances
-    distances = pt.distance(inspected_traj, mask=h_bonds.get_amber_mask()[0])
+    logging.info(f"\tGet the hydrogen bonds distances, {cores} core{'s' if cores > 1 else ''} used, please be "
+                 f"patient..")
+    distances = pt.pmap(pt.distance, inspected_traj, mask=h_bonds.get_amber_mask()[0], n_cores=cores)
     # filter the Hydrogen bonds
     if "H bonds" not in data:
         data["H bonds"] = {}
@@ -584,8 +588,9 @@ if __name__ == "__main__":
     """
     parser = argparse.ArgumentParser(description=descr, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-o", "--out", required=True, type=str, help="the path to the output directory.")
-    parser.add_argument("-s", "--sample", required=True, type=str,
-                        help="the sample ID used for the files name.")
+    parser.add_argument("-c", "--cores", required=True, type=int,
+                        help="the number of cores for the computation parallelization.")
+    parser.add_argument("-s", "--sample", required=True, type=str, help="the sample ID used for the files name.")
     parser.add_argument("-t", "--topology", required=True, type=str,
                         help="the path to the molecular dynamics topology file.")
     parser.add_argument("-n", "--nanoseconds", required=True, type=int,
@@ -671,7 +676,7 @@ if __name__ == "__main__":
             sys.exit(1)
 
         # find the Hydrogen bonds
-        data_traj = hydrogen_bonds(trajectory, data_traj, args.distance_contacts, args.angle_cutoff)
+        data_traj = hydrogen_bonds(trajectory, data_traj, args.distance_contacts, args.angle_cutoff, args.cores)
 
         # pickle the analysis
         record_analysis(data_traj, args.out, traj_file, args.sample)
