@@ -10,10 +10,10 @@ __email__ = "jeanne.n@chu-toulouse.fr"
 __version__ = "3.0.0"
 
 import argparse
-import copy
 import logging
 import numpy as np
 import os
+import pickle
 import re
 import statistics
 import sys
@@ -111,11 +111,13 @@ def parse_frames(frames_selections, traj_files_paths):
     :return: the selected frames by trajectory file.
     :rtype: dict
     """
-    data = {}
+    frames_selection_data = {}
     # the pattern to get the beginning and the end of the frames selection
-    pattern = re.compile("(.+):(\\d+)-(\\d+)")
+    pattern = re.compile("(.+):(\\d+|\\*)-(\\d+|\\*)")
 
     if frames_selections:
+        start = 'the first frame'
+        end = 'the last frame'
         traj_basenames = [os.path.basename(traj_files_path) for traj_files_path in traj_files_paths]
         for frames_sel in frames_selections.split(","):
             match = pattern.search(frames_sel)
@@ -127,19 +129,24 @@ def parse_frames(frames_selections, traj_files_paths):
                     raise argparse.ArgumentTypeError(f"The trajectory file {current_traj} in frame selection part "
                                                      f"'{frames_sel}' is not a file belonging to the inputs trajectory "
                                                      f"files: {','.join(traj_basenames)}")
-                data[current_traj] = {"begin": int(start), "end": int(end)}
+                if start != "*":
+                    frames_selection_data[current_traj] = {"begin": int(start)}
+                if end != "*":
+                    if current_traj not in frames_selection_data:
+                        frames_selection_data[current_traj] = {"end": int(end)}
+                    else:
+                        frames_selection_data[current_traj]["end"] = int(end)
             else:
                 raise argparse.ArgumentTypeError(f"The frame selection part '{frames_sel}' do not match the correct "
                                                  f"pattern {pattern.pattern}'")
         logging.info("Frames selection on input trajectory files:")
-        for current_traj in data:
-            logging.info(f"\t{current_traj}: frames selection from {data[current_traj]['begin']} to "
-                         f"{data[current_traj]['end']}.")
-    return data
+        for current_traj in frames_selection_data:
+            logging.info(f"\t{current_traj}: frames selection from {start} to {end}.")
+    return frames_selection_data
 
 
 def resume_or_initialize_analysis(trajectory_files, topology_file, smp, distance_contacts, angle_cutoff,
-                                  proportion_contacts, sim_time, resume_path, frames_sel):
+                                  proportion_contacts, sim_time, resume_yaml, frames_sel):
     """
     Load the previous analysis data or create a new one if no previous analysis path was performed.
 
@@ -158,17 +165,16 @@ def resume_or_initialize_analysis(trajectory_files, topology_file, smp, distance
     :type proportion_contacts: float
     :param sim_time: the molecular dynamics simulation time in ns.
     :type sim_time: int
-    :param resume_path: the path to the YAML file of previous analysis.
-    :type resume_path: str
+    :param resume_yaml: the path to the YAML file of previous analysis.
+    :type resume_yaml: str
     :param frames_sel: the frames selection for new trajectory files.
     :type frames_sel: dict
     :return: the initialized or resumed analysis data, the trajectory files already analyzed.
     :rtype: dict, list
     """
     trajectory_files_to_skip = []
-    if resume_path:
-        logging.info(f"Resumed analysis from YAML file: {resume_path}")
-        with open(resume_path, "r") as file_handler:
+    if resume_yaml:
+        with open(resume_yaml, "r") as file_handler:
             data = yaml.safe_load(file_handler.read())
 
         # check the processed analyzed trajectories files
@@ -178,9 +184,7 @@ def resume_or_initialize_analysis(trajectory_files, topology_file, smp, distance
                 trajectory_files_to_skip.append(t_file)
                 logging.warning(
                     f"\t{t_file} already processed in the previous analysis (check the YAML file, section 'trajectory "
-                    f"files processed'), the trajectory analysis is skipped.")
-            else:
-                logging.debug(f"\t{t_file} will be processed.")
+                    f"files processed'), this trajectory analysis is skipped.")
 
         discrepancies = []
         if data["sample"] != smp:
@@ -205,13 +209,16 @@ def resume_or_initialize_analysis(trajectory_files, topology_file, smp, distance
                     discrepancies_txt = f"{discrepancies_txt}; {item}"
                 else:
                     discrepancies_txt = item
-                discrepancies_txt = f"{discrepancies_txt}. Check {resume_path}"
+                discrepancies_txt = f"{discrepancies_txt}. Check {resume_yaml}"
             raise KeyError(discrepancies_txt)
 
-        # cast lists to numpy arrays
-        logging.debug(f"\tCasting previous Hydrogen bonds lists to numpy.arrays.")
-        for h_bond in data["H bonds"]:
-            data["H bonds"][h_bond] = np.array(data["H bonds"][h_bond])
+        # load the H bonds from the pickle file
+        try:
+            with open(data["pickle hydrogen bonds"], "rb") as file_handler:
+                data["H bonds"] = pickle.load(file_handler)
+        except FileNotFoundError as fnf_ex:
+            logging.error(fnf_ex, exc_info=True)
+            sys.exit(1)
 
         # add frames selection in new trajectory files
         if frames_sel:
@@ -354,7 +361,6 @@ def hydrogen_bonds(inspected_traj, data, atoms_dist, angle):
     :rtype: dict
     """
     logging.info("\tsearch for hydrogen bonds, please be patient..")
-
     # search hydrogen bonds with distance < atoms distance threshold and angle > angle cut-off.
     h_bonds = pt.search_hbonds(inspected_traj, distance=atoms_dist, angle=angle)
     # get the distances
@@ -376,9 +382,9 @@ def hydrogen_bonds(inspected_traj, data, atoms_dist, angle):
     return data
 
 
-def record_analysis_yaml(data, out_dir, current_trajectory_file, smp):
+def record_analysis(data, out_dir, current_trajectory_file, smp):
     """
-    Record the analysis in a YAML file.
+    Record the analysis to a YAML file and pickle the hydrogen bonds data in a binary file.
 
     :param data: the trajectory analysis data.
     :type data: dict
@@ -388,18 +394,30 @@ def record_analysis_yaml(data, out_dir, current_trajectory_file, smp):
     :type current_trajectory_file: str
     :param smp: the sample name.
     :type smp: str
+    :return: the trajectory analysis data.
+    :rtype: dict
     """
     if "trajectory files processed" not in data:
         data["trajectory files processed"] = []
     data["trajectory files processed"].append(os.path.basename(current_trajectory_file))
-    out = os.path.join(out_dir, f"{smp.replace(' ', '_')}_analysis.yaml")
-    tmp = copy.copy(data)
-    for h_bond in tmp["H bonds"]:
-        if not isinstance(tmp["H bonds"][h_bond], list):
-            tmp["H bonds"][h_bond] = tmp["H bonds"][h_bond].tolist()
-    with open(out, "w") as file_handler:
-        yaml.dump(tmp, file_handler)
-    logging.info(f"\t\tAnalysis saved: {os.path.abspath(out)}")
+
+    # extract the H bonds from the data and pickle them
+    out_pickle = os.path.join(out_dir, f"{smp.replace(' ', '_')}_analysis.pkl")
+    hydrogen_bond_analysis_data = data.pop("H bonds")
+    with open(out_pickle, "wb") as file_handler:
+        pickle.dump(hydrogen_bond_analysis_data, file_handler)
+    logging.info(f"\t\tHydrogen bonds analysis saved: {os.path.abspath(out_pickle)}")
+
+    # save the analysis parameters without the H bonds to a YAML file
+    data["pickle hydrogen bonds"] = os.path.abspath(out_pickle)
+    out_yaml = os.path.join(out_dir, f"{smp.replace(' ', '_')}_analysis.yaml")
+    with open(out_yaml, "w") as file_handler:
+        yaml.dump(data, file_handler)
+    logging.info(f"\t\tAnalysis parameters saved: {os.path.abspath(out_yaml)}")
+
+    # add the extracted H bonds to the data again
+    data["H bonds"] = hydrogen_bond_analysis_data
+    return data
 
 
 def sort_contacts(contact_names, pattern):
@@ -574,9 +592,10 @@ if __name__ == "__main__":
                         help="the molecular dynamics simulation time in nano seconds.")
     parser.add_argument("-f", "--frames", required=False, type=str,
                         help="the frames selection by trajectory file. The arguments should be <TRAJ_FILE>:100-1000. "
-                             "If the <TRAJ_FILE> contains 1000 frames, only the frames from 100-1000 will be selected."
+                             "If the <TRAJ_FILE> contains 2000 frames, only the frames from 100-1000 will be selected."
                              "Multiple frames selections can be performed with comma separators, i.e: "
-                             "'<TRAJ_FILE_1>:100-1000,<TRAJ_FILE_2>:1-500'")
+                             "'<TRAJ_FILE_1>:100-1000,<TRAJ_FILE_2>:1-500'. If a '*' is used as '<TRAJ_FILE_1>:100-*', "
+                             "the used frames will be the 100th until the end frame.")
     parser.add_argument("-d", "--distance-contacts", required=False, type=restricted_positive, default=3.0,
                         help="An hydrogen bond is defined as A-HD, where A is acceptor heavy atom, H is hydrogen, D is "
                              "donor heavy atom. An hydrogen bond is formed when A to D distance < distance. Default is "
@@ -654,8 +673,8 @@ if __name__ == "__main__":
         # find the Hydrogen bonds
         data_traj = hydrogen_bonds(trajectory, data_traj, args.distance_contacts, args.angle_cutoff)
 
-        # record the analysis in a yaml file
-        record_analysis_yaml(data_traj, args.out, traj_file, args.sample)
+        # pickle the analysis
+        record_analysis(data_traj, args.out, traj_file, args.sample)
 
     # filter the hydrogen bonds
     pattern_donor_acceptor = re.compile("(\\D{3})(\\d+)_(.+)-(\\D{3})(\\d+)_(.+)")
@@ -672,4 +691,3 @@ if __name__ == "__main__":
     logging.info(f"Whole trajectories memory size: {round(data_traj['size Gb'], 6):>17} Gb")
     logging.info(f"Whole trajectories frames: {data_traj['frames']:>16}")
     logging.info(f"Whole trajectories hydrogen bonds found: {len(filtered_hydrogen_bonds)}")
-
