@@ -274,12 +274,16 @@ def load_trajectory(trajectory_file, topology_file, frames_sel):
     :rtype: pytraj.Trajectory
     """
     logging.info(f"\tLoading trajectory file, please be patient..")
-    if trajectory_file in frames_sel:
-        traj = pt.iterload(trajectory_file, top=topology_file,
-                           frames_indices=range(frames_sel[trajectory_file]["begin"] - 1,
-                                                frames_sel[trajectory_file]["end"] - 1))
-    else:
-        traj = pt.iterload(trajectory_file, top=topology_file)
+    try:
+        if trajectory_file in frames_sel:
+            traj = pt.iterload(trajectory_file, top=topology_file,
+                               frames_indices=range(frames_sel[trajectory_file]["begin"] - 1,
+                                                    frames_sel[trajectory_file]["end"] - 1))
+        else:
+            traj = pt.iterload(trajectory_file, top=topology_file)
+    except ValueError as ve_ex:
+        logging.error(f"\tOne of the following files is missing: {trajectory_file} or {topology_file}")
+        sys.exit(1)
     logging.info(f"\t\tMolecules:{traj.topology.n_mols:>20}")
     logging.info(f"\t\tResidues:{traj.topology.n_residues:>22}")
     logging.info(f"\t\tAtoms:{traj.topology.n_atoms:>27}")
@@ -345,7 +349,7 @@ def check_trajectories_consistency(traj, path, data, frames_sel):
     return data
 
 
-def hydrogen_bonds(inspected_traj, data, atoms_dist, angle, cores):
+def hydrogen_bonds(inspected_traj, data, atoms_dist, angle):
     """
     Extract the hydrogen bonds and add the distances values.
 
@@ -357,18 +361,16 @@ def hydrogen_bonds(inspected_traj, data, atoms_dist, angle, cores):
     :type atoms_dist: float
     :param angle: the angle cutoff for the hydrogen bonds.
     :type angle: int
-    :param cores: the number of cores for the computation parallelization.
-    :type cores: int
     :return: the updated trajectories data.
     :rtype: dict
     """
+
     # search hydrogen bonds with distance < atoms distance threshold and angle > angle cut-off.
-    logging.info(f"\tSearch for hydrogen bonds, {cores} core{'s' if cores > 1 else ''} used, please be patient..")
-    h_bonds = pt.pmap(pt.search_hbonds, inspected_traj, distance=atoms_dist, angle=angle, n_cores=cores)
+    logging.info("\tSearch for hydrogen bonds, please be patient..")
+    h_bonds = pt.search_hbonds(inspected_traj, distance=atoms_dist, angle=angle)
     # get the distances
-    logging.info(f"\tGet the hydrogen bonds distances, {cores} core{'s' if cores > 1 else ''} used, please be "
-                 f"patient..")
-    distances = pt.pmap(pt.distance, inspected_traj, mask=h_bonds.get_amber_mask()[0], n_cores=cores)
+    logging.info("\tGet the hydrogen bonds distances, please be patient..")
+    distances = pt.distance(inspected_traj, mask=h_bonds.get_amber_mask()[0])
     # filter the Hydrogen bonds
     if "H bonds" not in data:
         data["H bonds"] = {}
@@ -588,8 +590,6 @@ if __name__ == "__main__":
     """
     parser = argparse.ArgumentParser(description=descr, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-o", "--out", required=True, type=str, help="the path to the output directory.")
-    parser.add_argument("-c", "--cores", required=True, type=int,
-                        help="the number of cores for the computation parallelization.")
     parser.add_argument("-s", "--sample", required=True, type=str, help="the sample ID used for the files name.")
     parser.add_argument("-t", "--topology", required=True, type=str,
                         help="the path to the molecular dynamics topology file.")
@@ -676,7 +676,7 @@ if __name__ == "__main__":
             sys.exit(1)
 
         # find the Hydrogen bonds
-        data_traj = hydrogen_bonds(trajectory, data_traj, args.distance_contacts, args.angle_cutoff, args.cores)
+        data_traj = hydrogen_bonds(trajectory, data_traj, args.distance_contacts, args.angle_cutoff)
 
         # pickle the analysis
         record_analysis(data_traj, args.out, traj_file, args.sample)
