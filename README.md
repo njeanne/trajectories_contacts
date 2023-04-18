@@ -36,10 +36,10 @@ files `test_data_20-frames.nc` and `test_data_20-frames_2.nc` with 20 frames and
 ```shell script
 conda activate traj
 
-./trajectories_contacts.py --frames test_data_20-frames.nc:5-20 --proportion-contacts 50.0 --distance-contacts 3.0 \
---angle-cutoff 135 --nanoseconds 1 --out results/traj_test --sample "trajectory test" \
---topology tests/test_files/test_data.parm tests/test_files/test_data_20-frames.nc \
-tests/test_files/test_data_20-frames_2.nc
+./trajectories_contacts.py --sample "test_data_20-frames" --frames test_data_20-frames.nc:5-20 \
+--proportion-contacts 50.0 --distance-contacts 3.0 --angle-cutoff 135 --nanoseconds 1 \
+--out results/traj_test  --topology tests/test_files/test_data.parm \
+tests/test_files/test_data_20-frames.nc 
 
 conda deactivate
 ```
@@ -55,10 +55,10 @@ If the analysis resumes a previous analysis, use the `--resume` parameter with t
 previous analysis as argument:
 
 ```shell script
-./trajectories_contacts.py --frames test_data_20-frames.nc:5-20 --proportion-contacts 50.0 --distance-contacts 3.0 \
---angle-cutoff 135 --nanoseconds 1 --out results/traj_test --sample "trajectory test" \
---resume tests/expected/analysis_resumed.yaml --topology tests/test_files/test_data.parm \
-tests/test_files/test_data_20-frames.nc tests/test_files/test_data_20-frames_2.nc
+./trajectories_contacts.py --sample "test_data_20-frames" --resume tests/expected/analysis_resumed.yaml \
+--frames test_data_20-frames.nc:5-20 --proportion-contacts 50.0 --distance-contacts 3.0 \
+--angle-cutoff 135 --nanoseconds 1 --out results/traj_test --topology tests/test_files/test_data.parm \
+tests/test_files/test_data_20-frames_2.nc
 ```
 
 ## Outputs
