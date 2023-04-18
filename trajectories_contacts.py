@@ -641,6 +641,7 @@ if __name__ == "__main__":
     logging.info(f"Atoms maximal contacts distance threshold: {args.distance_contacts:>7} \u212B")
     logging.info(f"Angle minimal cut-off: {args.angle_cutoff:>27}°")
     logging.info(f"Minimal frames proportion with atoms contacts: {args.proportion_contacts:.1f}%")
+    logging.info(f"Molecular Dynamics duration: {args.nanoseconds:>19} ns")
 
     try:
         frames_selection = parse_frames(args.frames, args.inputs)
