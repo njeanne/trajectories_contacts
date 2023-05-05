@@ -1,5 +1,5 @@
+data/
 results/
-sbatch_*
 *.out
 
 # Byte-compiled / optimized / DLL files
