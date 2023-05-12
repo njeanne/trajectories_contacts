@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import pytraj as pt
 import logging
 import os
@@ -46,5 +48,5 @@ if comm.rank == 0:
     # save data
     pt.to_pickle(data, os.path.join(out_dir, "MPI_HEPAC-6_RNF19A_ORF1_2000-frame.pk"))
     logging.info(f"Analysis time (process {comm.rank}): {str_elapsed_time(time_start)}")
-    logging.info(f"process {comm.rank}, length data: {len(data)}:\n{data}\n")
+    logging.info(f"process {comm.rank}, length data: {len(data)}")
 
