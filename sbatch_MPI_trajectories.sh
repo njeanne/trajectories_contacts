@@ -1,18 +1,18 @@
 #!/bin/bash
 
-#SBATCH -J MULTIPROC_4-proc_traj
+#SBATCH -J MPI_traj
 #SBATCH --mem=16000
 #SBATCH -N 1
-#SBATCH -n 4
-#SBATCH --ntasks-per-node=4
+#SBATCH -n 2
+#SBATCH --ntasks-per-node=2
 #SBATCH --ntasks-per-core=1
 #SBATCH --time=00:05:00
 #SBATCH --mail-user=jeanne.n@chu-toulouse.fr
 #SBATCH --mail-type=ALL
-#SBATCH --output=MULTIPROC_4-proc_traj.%j.out
+#SBATCH --output=MPI_traj.%j.out
 
 module purge
-module load intel/18.2 openmpi/icc/2.0.2.10 conda/4.9.2
+module load intel/18.2 intelmpi/18.2 conda/4.9.2-silent
 ulimit -s 10240
 
 # variable needed to state that each mpi process use only one thread
@@ -29,7 +29,9 @@ TMPDIR=/tmpdir/jeanne
 
 conda activate traj
 
-srun python /users/p1237/jeanne/dev/trajectories_contacts/trajectories_contacts.py \
+source /usr/local/intel/2018.2.046/compilers_and_libraries/../itac/2018.2.020/bin/itacvars.sh
+
+mpiexec.hydra -np 2 -trace srun -python /users/p1237/jeanne/dev/trajectories_contacts/trajectories_contacts.py \
 --log-level DEBUG --sample "$SAMPLE" --proportion-contacts 50.0 --distance-contacts 3.0 --angle-cutoff 135 \
 --nanoseconds $NANOSECONDS --out results/parallel/traj \
 --topology "data/HEPAC-6_RNF19A_ORF1_0.parm" \
