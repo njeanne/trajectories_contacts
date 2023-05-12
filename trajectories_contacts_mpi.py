@@ -373,9 +373,9 @@ def hydrogen_bonds(inspected_traj, data, atoms_dist, angle):
     logging.info(f"\tGet the hydrogen bonds distances from process {comm.rank}, please be patient..")
     logging.info(f"process {comm.rank}: {h_bonds}")
     distances = pt.pmap_mpi(pt.distance, inspected_traj, h_bonds.get_amber_mask()[0])
-    logging.info(f"process {comm.rank}: finished")
+    logging.info(f"pt.map_mpi process {comm.rank}: finished")
     if comm.rank == 0:
-        logging.info(f"process {comm.rank}: {len(distances)}\n{distances}")
+        logging.info(f"in comm 0 process {comm.rank}: {len(distances)}\n{data}")
         # filter the Hydrogen bonds
         if "H bonds" not in data:
             data["H bonds"] = {}
@@ -388,8 +388,6 @@ def hydrogen_bonds(inspected_traj, data, atoms_dist, angle):
                 data["H bonds"][donor_acceptor] = np.concatenate((data["H bonds"][donor_acceptor], filtered_distances))
             else:
                 data["H bonds"][donor_acceptor] = filtered_distances
-    else:
-        logging.info(f"rank: {comm.rank}\n{distances}")
     logging.info(f"\t\t{len(data['H bonds'])} hydrogen bonds found in the {inspected_traj.n_frames} frames of the "
                  f"trajectory.")
     return data
