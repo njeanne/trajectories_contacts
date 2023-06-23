@@ -24,17 +24,17 @@ def str_elapsed_time(time_of_start):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="test distance computation with MPI",
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("-o", "--out", required=True, type=str, help="the path to the output directory.")
     parser.add_argument("-t", "--top", required=True, type=str, help="the path to the topology file.")
     parser.add_argument("input", type=str, help="the trajectory file path.")
     args = parser.parse_args()
 
     sample = os.path.splitext(os.path.basename(args.input))[0]
-    out_dir = "results/parallel/distances_mpi"
-    os.makedirs(out_dir, exist_ok=True)
+    os.makedirs(args.out, exist_ok=True)
     logging.basicConfig(format="%(asctime)s %(levelname)s:\t%(message)s",
                         datefmt="%Y/%m/%d %H:%M:%S",
                         level="INFO",
-                        handlers=[logging.FileHandler(os.path.join(out_dir, f"MPI_distances_{sample}.log")),
+                        handlers=[logging.FileHandler(os.path.join(args.out, f"MPI_distances_{sample}.log")),
                                   logging.StreamHandler()])
 
     time_start = datetime.now()
@@ -61,7 +61,7 @@ if __name__ == "__main__":
     # data is sent to first core (rank=0)
     if comm.rank == 0:
         # save data
-        pt.to_pickle(data, os.path.join(out_dir, f"MPI_{sample}.pk"))
+        pt.to_pickle(data, os.path.join(args.out, f"MPI_{sample}.pk"))
         logging.info(f"Analysis time (process {comm.rank}): {str_elapsed_time(time_start)}")
         logging.info(f"process {comm.rank}, length data: {len(data)}")
 
