@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+
+import argparse
 import pytraj as pt
 import logging
 import os
@@ -18,25 +21,41 @@ def str_elapsed_time(time_of_start):
     return elapsed_time
 
 
-out_dir = "results/parallel/distances_serial"
-os.makedirs(out_dir, exist_ok=True)
-logging.basicConfig(format="%(asctime)s %(levelname)s:\t%(message)s",
-                    datefmt="%Y/%m/%d %H:%M:%S",
-                    level="INFO",
-                    handlers=[logging.FileHandler(os.path.join(out_dir, "distances.log")), logging.StreamHandler()])
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="test distance computation with MPI",
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("-t", "--top", required=True, type=str, help="the path to the topology file.")
+    parser.add_argument("input", type=str, help="the trajectory file path.")
+    args = parser.parse_args()
 
-time_start = datetime.now()
-logging.info(f"launched on process")
+    sample = os.path.splitext(os.path.basename(args.input))[0]
+    out_dir = "results/parallel/distances_serial"
+    os.makedirs(out_dir, exist_ok=True)
+    logging.basicConfig(format="%(asctime)s %(levelname)s:\t%(message)s",
+                        datefmt="%Y/%m/%d %H:%M:%S",
+                        level="INFO",
+                        handlers=[logging.FileHandler(os.path.join(out_dir, f"SERIAL_distances_{sample}.log")),
+                                  logging.StreamHandler()])
 
-# load trajectory to each core. Use iterload to save memory
-traj = pt.iterload("data/HEPAC-6_RNF19A_ORF1_2000-frames.nc",
-                   "data/HEPAC-6_RNF19A_ORF1_0.parm")
-hb = pt.hbond(traj)
-logging.info(f"process: {hb.get_amber_mask()[0]}")
+    time_start = datetime.now()
+    logging.info(f"SERIAL PROCESSING")
 
-# compute distances
-data = pt.distance(traj, hb.get_amber_mask()[0])
-pt.to_pickle(data, os.path.join(out_dir, "SERIAL_HEPAC-6_RNF19A_ORF1_2000-frame.pk"))
-logging.info(f"Analysis time: {str_elapsed_time(time_start)}")
-logging.info(f"length data: {len(data)}")
-logging.info(data)
+    # load trajectory to each core. Use iterload to save memory
+    logging.info(f"Trajectory file: {args.input}")
+    traj = pt.iterload(args.input, args.top)
+    logging.info(f"\tMolecules:{traj.topology.n_mols:>20}")
+    logging.info(f"\tResidues:{traj.topology.n_residues:>22}")
+    logging.info(f"\tAtoms:{traj.topology.n_atoms:>27}")
+    logging.info(f"\tTrajectory total frames:{traj.n_frames:>7}")
+    logging.info(f"\tTrajectory memory size:{round(traj._estimated_GB, 6):>14} Gb")
+
+    hb = pt.hbond(traj)
+    logging.info(f"serial: {hb.get_amber_mask()[0]}")
+
+    # compute distances
+    data = pt.distance(traj, hb.get_amber_mask()[0])
+    pt.to_pickle(data, os.path.join(out_dir, f"SERIAL_{sample}.pk"))
+    logging.info(f"Analysis time: {str_elapsed_time(time_start)}")
+    logging.info(f"length data: {len(data)}")
+
+
