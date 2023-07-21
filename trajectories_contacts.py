@@ -10,6 +10,7 @@ __email__ = "jeanne.n@chu-toulouse.fr"
 __version__ = "3.0.0"
 
 import argparse
+from datetime import datetime
 import logging
 import numpy as np
 import os
@@ -627,6 +628,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # create output directory if necessary
+    t0 = datetime.now()
     os.makedirs(args.out, exist_ok=True)
 
     # create the logger
@@ -697,3 +699,4 @@ if __name__ == "__main__":
     logging.info(f"Whole trajectories memory size: {round(data_traj['size Gb'], 6):>17} Gb")
     logging.info(f"Whole trajectories frames: {data_traj['frames']:>16}")
     logging.info(f"Whole trajectories hydrogen bonds found: {len(filtered_hydrogen_bonds)}")
+    logging.info(f"Analyse performed in: {datetime.now() - t0}")

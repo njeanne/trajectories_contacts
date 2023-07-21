@@ -1,5 +1,6 @@
-data/
-results/
+results
+data
+sbatch_*
 *.out
 *.map
 
