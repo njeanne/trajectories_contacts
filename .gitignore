@@ -1,4 +1,5 @@
-results/
+results
+data
 sbatch_*
 *.out
 
