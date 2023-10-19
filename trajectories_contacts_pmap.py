@@ -19,7 +19,6 @@ import statistics
 import sys
 import yaml
 
-from mpi4py import MPI
 import pandas as pd
 import pytraj as pt
 
@@ -235,6 +234,9 @@ def resume_or_initialize_analysis(trajectory_files, topology_file, smp, distance
                 "topology file": os.path.basename(topology_file)}
     # set the simulation time
     data["parameters"]["time"] = f"{sim_time} ns"
+    # add H bonds section if necessary
+    if "H bonds" not in data:
+        data["H bonds"] = {}
     return data, trajectory_files_to_skip
 
 
@@ -365,29 +367,27 @@ def hydrogen_bonds(inspected_traj, data, atoms_dist, angle):
     :return: the updated trajectories data.
     :rtype: dict
     """
-    comm = MPI.COMM_WORLD
     # search hydrogen bonds with distance < atoms distance threshold and angle > angle cut-off.
     logging.info("\tSearch for hydrogen bonds, please be patient..")
     h_bonds = pt.hbond(inspected_traj, distance=atoms_dist, angle=angle)
     # get the distances
-    logging.info(f"\tGet the hydrogen bonds distances from process {comm.rank}, please be patient..")
-    logging.info(f"process {comm.rank}: {h_bonds}")
-    distances = pt.pmap_mpi(pt.distance, inspected_traj, h_bonds.get_amber_mask()[0])
-    logging.info(f"pt.map_mpi process {comm.rank}: finished")
-    if comm.rank == 0:
-        logging.info(f"in comm 0 process {comm.rank}: {len(distances)}\n{data}")
-        # filter the Hydrogen bonds
-        if "H bonds" not in data:
-            data["H bonds"] = {}
-        # record the distances of all hydrogen bonds (donors-acceptors) detected in the chunk
-        for idx in range(len(h_bonds.donor_acceptor)):
-            donor_acceptor = h_bonds.donor_acceptor[idx]
-            # filter the whole frames distances for this contact on the atoms contact distance threshold
-            filtered_distances = distances[idx][distances[idx] <= atoms_dist]
-            if donor_acceptor in data["H bonds"]:
-                data["H bonds"][donor_acceptor] = np.concatenate((data["H bonds"][donor_acceptor], filtered_distances))
-            else:
-                data["H bonds"][donor_acceptor] = filtered_distances
+    logging.info(f"\tGet the hydrogen bonds distances from multiprocessing, please be patient..")
+    logging.info(f"process: {h_bonds}")
+    distances = pt.pmap(pt.distance, inspected_traj, h_bonds.get_amber_mask()[0], n_cores=4)
+    logging.info(f"finished pt.pmap process: {len(distances)} distances")
+    # filter the Hydrogen bonds
+    # record the distances of all hydrogen bonds (donors-acceptors) detected in the chunk
+    for idx in range(len(h_bonds.donor_acceptor)):
+        donor_acceptor = h_bonds.donor_acceptor[idx]
+        # filter the whole frames distances for this contact on the atoms contact distance threshold
+        # print(f"{idx}: {donor_acceptor}")
+        key_distance = list(distances.keys())[idx]
+        # print(f"distances[{idx}]: {distances[key]}")
+        filtered_distances = distances[key_distance][distances[key_distance] <= atoms_dist]
+        if donor_acceptor in data["H bonds"]:
+            data["H bonds"][donor_acceptor] = np.concatenate((data["H bonds"][donor_acceptor], filtered_distances))
+        else:
+            data["H bonds"][donor_acceptor] = filtered_distances
     logging.info(f"\t\t{len(data['H bonds'])} hydrogen bonds found in the {inspected_traj.n_frames} frames of the "
                  f"trajectory.")
     return data

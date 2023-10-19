@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import pytraj as pt
 import logging
 import os
@@ -16,9 +17,7 @@ def str_elapsed_time(time_of_start):
     :rtype: str
     """
     delta = (datetime.now() - time_of_start).total_seconds()
-    elapsed_time = "{:02}h:{:02}m:{:02}s".format(int(delta // 3600),
-                                                 int(delta % 3600 // 60),
-                                                 int(delta % 60))
+    elapsed_time = "{:02}h:{:02}m:{:02}s".format(int(delta // 3600), int(delta % 3600 // 60), int(delta % 60))
     return elapsed_time
 
 
@@ -50,5 +49,3 @@ if comm.rank == 0:
     pt.to_pickle(data, out_path)
     logging.info(f"process {comm.rank}, length data: {len(data)}, saved: {out_path}")
     logging.info(f"Analysis time (process {comm.rank}): {str_elapsed_time(time_start)}")
-
-

@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+
+import argparse
 import pytraj as pt
 import logging
 import os
@@ -40,5 +43,3 @@ pt.to_pickle(data, os.path.join(out_dir, "SERIAL_HEPAC-6_RNF19A_ORF1_2000-frame.
 out_path = os.path.join(out_dir, "MPI_HEPAC-6_RNF19A_ORF1_2000-frame.pk")
 logging.info(f"SERIAL, length data: {len(data)}, saved: {out_path}")
 logging.info(f"Analysis time (SERIAL): {str_elapsed_time(time_start)}")
-
-
