@@ -46,7 +46,9 @@ data = pt.pmap_mpi(pt.distance, traj, hb.get_amber_mask()[0])
 # data is sent to first core (rank=0)
 if comm.rank == 0:
     # save data
-    pt.to_pickle(data, os.path.join(out_dir, "MPI_HEPAC-6_RNF19A_ORF1_2000-frame.pk"))
+    out_path = os.path.join(out_dir, "MPI_HEPAC-6_RNF19A_ORF1_2000-frame.pk")
+    pt.to_pickle(data, out_path)
+    logging.info(f"process {comm.rank}, length data: {len(data)}, saved: {out_path}")
     logging.info(f"Analysis time (process {comm.rank}): {str_elapsed_time(time_start)}")
-    logging.info(f"process {comm.rank}, length data: {len(data)}")
+
 

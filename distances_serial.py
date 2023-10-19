@@ -18,7 +18,7 @@ def str_elapsed_time(time_of_start):
     return elapsed_time
 
 
-out_dir = "results/parallel/distances_serial"
+out_dir = "results/serial/distances_serial"
 os.makedirs(out_dir, exist_ok=True)
 logging.basicConfig(format="%(asctime)s %(levelname)s:\t%(message)s",
                     datefmt="%Y/%m/%d %H:%M:%S",
@@ -37,6 +37,8 @@ logging.info(f"process: {hb.get_amber_mask()[0]}")
 # compute distances
 data = pt.distance(traj, hb.get_amber_mask()[0])
 pt.to_pickle(data, os.path.join(out_dir, "SERIAL_HEPAC-6_RNF19A_ORF1_2000-frame.pk"))
-logging.info(f"Analysis time: {str_elapsed_time(time_start)}")
-logging.info(f"length data: {len(data)}")
-logging.info(data)
+out_path = os.path.join(out_dir, "MPI_HEPAC-6_RNF19A_ORF1_2000-frame.pk")
+logging.info(f"SERIAL, length data: {len(data)}, saved: {out_path}")
+logging.info(f"Analysis time (SERIAL): {str_elapsed_time(time_start)}")
+
+
