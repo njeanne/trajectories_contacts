@@ -31,9 +31,9 @@ conda activate traj
 
 source /usr/local/intel/2018.2.046/compilers_and_libraries/../itac/2018.2.020/bin/itacvars.sh
 
-mpiexec.hydra -np 2 -trace srun -python /users/p1237/jeanne/dev/trajectories_contacts/trajectories_contacts.py \
+srun -python /users/p1237/jeanne/dev/trajectories_contacts/trajectories_contacts_mpi.py \
 --log-level DEBUG --sample "$SAMPLE" --proportion-contacts 50.0 --distance-contacts 3.0 --angle-cutoff 135 \
---nanoseconds $NANOSECONDS --out results/parallel/traj \
+--nanoseconds $NANOSECONDS --out results/parallel/traj_MPI \
 --topology "data/HEPAC-6_RNF19A_ORF1_0.parm" \
 "data/HEPAC-6_RNF19A_ORF1_2000-frames.nc"
 
