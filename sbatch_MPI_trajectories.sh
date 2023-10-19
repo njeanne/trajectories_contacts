@@ -6,7 +6,7 @@
 #SBATCH -n 2
 #SBATCH --ntasks-per-node=2
 #SBATCH --ntasks-per-core=1
-#SBATCH --time=00:05:00
+#SBATCH --time=04:00:00
 #SBATCH --mail-user=jeanne.n@chu-toulouse.fr
 #SBATCH --mail-type=ALL
 #SBATCH --output=MPI_traj.%j.out
