@@ -104,7 +104,7 @@ def create_log(path, level):
 
 def parse_frames(frames_selections, traj_files_paths):
     """
-    Parse the frames selection by trajectory file.
+    Parse the frames' selection by trajectory file.
 
     :param frames_selections: the frames selection by trajectory file.
     :type frames_selections: str
@@ -154,7 +154,7 @@ def resume_or_initialize_analysis(trajectory_files, topology_file, smp, distance
 
     :param trajectory_files: the current analysis trajectory files path.
     :type trajectory_files: list
-    :param topology_file: the trajectories topology file.
+    :param topology_file: the trajectories' topology file.
     :type topology_file: str
     :param smp: the sample name.
     :type smp: str
@@ -169,9 +169,9 @@ def resume_or_initialize_analysis(trajectory_files, topology_file, smp, distance
     :type sim_time: int
     :param resume_yaml: the path to the YAML file of previous analysis.
     :type resume_yaml: str
-    :param frames_sel: the frames selection for new trajectory files.
+    :param frames_sel: the frames' selection for new trajectory files.
     :type frames_sel: dict
-    :return: the initialized or resumed analysis data, the trajectory files already analyzed.
+    :return: the initialized or resumed analysis data, the trajectory files' already analyzed.
     :rtype: dict, list
     """
     trajectory_files_to_skip = []
@@ -236,7 +236,7 @@ def resume_or_initialize_analysis(trajectory_files, topology_file, smp, distance
                 "topology file": os.path.basename(topology_file)}
     # set the simulation time
     data["parameters"]["time"] = f"{sim_time} ns"
-    # add H bonds section if necessary
+    # add an H bonds section if necessary
     if "H bonds" not in data:
         data["H bonds"] = {}
     return data, trajectory_files_to_skip
@@ -273,7 +273,7 @@ def load_trajectory(trajectory_file, topology_file, frames_sel):
     :type trajectory_file: str
     :param topology_file: the topology file path.
     :type topology_file: str
-    :param frames_sel: the frames selection for new trajectory files.
+    :param frames_sel: the frames' selection for new trajectory files.
     :type frames_sel: dict
     :return: the loaded trajectory.
     :rtype: pytraj.Trajectory
@@ -320,11 +320,11 @@ def check_trajectories_consistency(traj, path, data, frames_sel):
     :type traj: pytraj.Trajectory
     :param path: the current trajectory path.
     :type path: str
-    :param data: the trajectories data.
+    :param data: the trajectories' data.
     :type data: dict
-    :param frames_sel: the frames selection on the trajectory files.
+    :param frames_sel: the frames' selection on the trajectory files.
     :type frames_sel: dict
-    :return: the updated trajectories data.
+    :return: the updated trajectories' data.
     :rtype: dict
     """
     if "residues" not in data:
@@ -356,26 +356,26 @@ def check_trajectories_consistency(traj, path, data, frames_sel):
 
 def hydrogen_bonds(inspected_traj, data, atoms_dist, angle):
     """
-    Extract the hydrogen bonds and add the distances values.
+    Extract the hydrogen bonds and add the distances' values.
 
     :param inspected_traj: the trajectory.
     :type inspected_traj: pytraj.Trajectory
-    :param data: the trajectories data.
+    :param data: the trajectories' data.
     :type data: dict
     :param atoms_dist: the threshold atoms distance in Angstroms for contacts.
     :type atoms_dist: float
     :param angle: the angle cutoff for the hydrogen bonds.
     :type angle: int
-    :return: the updated trajectories data.
+    :return: the updated trajectories' data.
     :rtype: dict
     """
-    # search hydrogen bonds with distance < atoms distance threshold and angle > angle cut-off.
+    # search hydrogen bonds with distance < atoms' distance threshold and angle > angle cut-off.
     logging.info("\tSearch for hydrogen bonds, please be patient..")
     h_bonds = pt.hbond(inspected_traj, distance=atoms_dist, angle=angle)
     # get the distances
     logging.info(f"\tGet the hydrogen bonds distances from process {comm.rank}, please be patient..")
     logging.info(f"process {comm.rank}: {h_bonds}")
-    distances = pt.mpi(pt.distance, inspected_traj, h_bonds.get_amber_mask()[0])
+    distances = pt.pmap_mpi(pt.distance, inspected_traj, h_bonds.get_amber_mask()[0])
     logging.info(f"finished pt.map_mpi process {comm.rank}: {len(distances)} distances")
     if comm.rank == 0:
         logging.info(f"in comm 0 process {comm.rank}: {len(distances)}\n{data}")
@@ -439,7 +439,7 @@ def sort_contacts(contact_names, pattern):
     """
     Get the order of the contacts on the first residue then on the second one.
 
-    :param contact_names: the contacts identifiers.
+    :param contact_names: the contacts' identifiers.
     :type contact_names: KeysView[Union[str, Any]]
     :param pattern: the pattern to extract the residues positions of the atoms contacts.
     :type pattern: re.pattern
@@ -472,7 +472,7 @@ def sort_contacts(contact_names, pattern):
 
 def filter_hbonds(analysis_data, pattern):
     """
-    Filter out the hydrogen contacts that belongs to the same residue.
+    Filter out the hydrogen contacts' that belong to the same residue.
 
     :param analysis_data: the whole analysis data
     :type analysis_data: dict
@@ -542,7 +542,7 @@ def contacts_csv(df, out_dir, smp, pattern):
     :type smp: str
     :param pattern: the donor/acceptor pattern.
     :type pattern: re.pattern
-    :return: the dataframe of the contacts statistics.
+    :return: the dataframe of the contacts' statistics.
     :rtype: pandas.DataFrame
     """
     data = {"contact": [],
