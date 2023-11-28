@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH -J MPI_traj
-#SBATCH --mem=16000
+#SBATCH --mem=96000
 #SBATCH -N 1
 #SBATCH -n 2
 #SBATCH --ntasks-per-node=2
