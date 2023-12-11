@@ -11,7 +11,7 @@ import tempfile
 import unittest
 import uuid
 
-from trajectories_contacts import *
+from trajectories_contacts_sequential import *
 
 TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 BIN_DIR = os.path.dirname(TEST_DIR)
