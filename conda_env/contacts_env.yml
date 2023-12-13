@@ -47,7 +47,7 @@ dependencies:
   - sqlite=3.41.2=h5eee18b_0
   - tk=8.6.12=h1ccaba5_0
   - wheel=0.38.4=py37h06a4308_0
-  - xz=5.4.2=h5eee18b_0
+  - xz=5.4.5=h5eee18b_0
   - zlib=1.2.13=h5eee18b_0
   - zstd=1.5.5=hc292b87_0
   - pip:
