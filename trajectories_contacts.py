@@ -427,12 +427,11 @@ def hydrogen_bonds(inspected_traj, data, atoms_dist, angle):
     # filter the Hydrogen bonds
     # record the distances of all hydrogen bonds (donors-acceptors) detected in the chunk
     for idx in range(len(donors_acceptors)):
-    # for idx in range(len(h_bonds.donor_acceptor)):
         # filter the whole frames distances for this contact on the atoms contact distance threshold
         key_distance = list(distances.keys())[idx]
         filtered_distances = distances[key_distance][distances[key_distance] <= atoms_dist]
         if donors_acceptors[idx] in data["H bonds"]:
-            data["H bonds"][donors_acceptors[idx]] = np.concatenate((data["H bonds"][donor_acceptor],
+            data["H bonds"][donors_acceptors[idx]] = np.concatenate((data["H bonds"][donors_acceptors[idx]],
                                                                      filtered_distances))
         else:
             data["H bonds"][donors_acceptors[idx]] = filtered_distances

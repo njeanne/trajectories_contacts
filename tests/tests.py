@@ -2,7 +2,7 @@
 
 __author__ = "Nicolas Jeanne"
 __license__ = "GNU General Public License"
-__version__ = "3.0.0"
+__version__ = "1.0.0"
 __email__ = "jeanne.n@chu-toulouse.fr"
 
 
