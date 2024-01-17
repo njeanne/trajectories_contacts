@@ -91,9 +91,6 @@ def create_log(path, level):
     else:
         log_level = log_level_dict[level]
 
-    if os.path.exists(path):
-        os.remove(path)
-
     logging.basicConfig(format="%(asctime)s %(levelname)s:\t%(message)s",
                         datefmt="%Y/%m/%d %H:%M:%S",
                         level=log_level,
