@@ -7,7 +7,7 @@ Created on 17 Mar. 2022
 __author__ = "Nicolas JEANNE"
 __copyright__ = "GNU General Public License"
 __email__ = "jeanne.n@chu-toulouse.fr"
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 import argparse
 import logging
@@ -144,8 +144,8 @@ def parse_frames(frames_selections, traj_files_paths):
     return frames_selection_data
 
 
-def resume_or_initialize_analysis(trajectory_files, topology_file, smp, distance_contacts, angle_cutoff,
-                                  proportion_contacts, sim_time, resume_yaml, frames_sel):
+def resume_or_initialize_analysis(trajectory_files, topology_file, smp, distance_hbonds, angle_cutoff,
+                                  proportion_hbonds, sim_time, resume_yaml, frames_sel):
     """
     Load the previous analysis data or create a new one if no previous analysis path was performed.
 
@@ -155,13 +155,13 @@ def resume_or_initialize_analysis(trajectory_files, topology_file, smp, distance
     :type topology_file: str
     :param smp: the sample name.
     :type smp: str
-    :param distance_contacts: the threshold atoms distance in Angstroms for contacts.
-    :type distance_contacts: float
+    :param distance_hbonds: the threshold atoms distance in Angstroms for hydrogen bonds.
+    :type distance_hbonds: float
     :param angle_cutoff: the angle cutoff for the hydrogen bonds.
     :type angle_cutoff: int
-    :param proportion_contacts: the minimal percentage of contacts for atoms contacts of different residues in the
+    :param proportion_hbonds: the minimal percentage of hydrogen bonds for atoms' contacts of different residues in the
     selected frames.
-    :type proportion_contacts: float
+    :type proportion_hbonds: float
     :param sim_time: the molecular dynamics simulation time in ns.
     :type sim_time: int
     :param resume_yaml: the path to the YAML file of previous analysis.
@@ -192,15 +192,15 @@ def resume_or_initialize_analysis(trajectory_files, topology_file, smp, distance
         if data["topology file"] != os.path.basename(topology_file):
             discrepancies.append(f"discrepancy in --topology, current analysis is {topology_file}, previous analysis "
                                  f"was {data['topology file']}")
-        if data["parameters"]["maximal atoms distance"] != distance_contacts:
-            discrepancies.append(f"discrepancy in --distance-contacts, current analysis is {distance_contacts}, "
+        if data["parameters"]["maximal atoms distance"] != distance_hbonds:
+            discrepancies.append(f"discrepancy in --distance-hbonds, current analysis is {distance_hbonds}, "
                                  f"previous analysis was {data['parameters']['maximal atoms distance']}")
         if data["parameters"]["angle cutoff"] != angle_cutoff:
             discrepancies.append(f"discrepancy in --angle-cutoff, current analysis is {angle_cutoff}, previous "
                                  f"analysis was {data['parameters']['angle cutoff']}")
-        if data["parameters"]["proportion contacts"] != proportion_contacts:
-            discrepancies.append(f"discrepancy in --proportion-contacts, current analysis is {proportion_contacts}, "
-                                 f"previous analysis was {data['parameters']['proportion contacts']}")
+        if data["parameters"]["proportion hbonds"] != proportion_hbonds:
+            discrepancies.append(f"discrepancy in --proportion-hbonds, current analysis is {proportion_hbonds}, "
+                                 f"previous analysis was {data['parameters']['proportion hbonds']}")
         if discrepancies:
             discrepancies_txt = None
             for item in discrepancies:
@@ -228,8 +228,8 @@ def resume_or_initialize_analysis(trajectory_files, topology_file, smp, distance
                 data["parameters"]["frames selections"] = frames_sel
     else:
         data = {"sample": smp, "size Gb": 0, "frames": 0,
-                "parameters": {"maximal atoms distance": distance_contacts, "angle cutoff": angle_cutoff,
-                               "proportion contacts": proportion_contacts},
+                "parameters": {"maximal atoms distance": distance_hbonds, "angle cutoff": angle_cutoff,
+                               "proportion hbonds": proportion_hbonds},
                 "topology file": os.path.basename(topology_file)}
     # set the simulation time
     data["parameters"]["time"] = f"{sim_time} ns"
@@ -393,7 +393,7 @@ def hydrogen_bonds(inspected_traj, data, atoms_dist, angle):
     :type inspected_traj: pytraj.Trajectory
     :param data: the trajectories' data.
     :type data: dict
-    :param atoms_dist: the threshold atoms distance in Angstroms for contacts.
+    :param atoms_dist: the threshold atoms distance in Angstroms for an hydrogen bond.
     :type atoms_dist: float
     :param angle: the angle cutoff for the hydrogen bonds.
     :type angle: int
@@ -416,7 +416,7 @@ def hydrogen_bonds(inspected_traj, data, atoms_dist, angle):
     donors_acceptors.remove("total_solute_hbonds")
     # convert the keys of the parallelized hbonds ordered dictionary to amber mask
     hbonds_distance_mask, _ = from_hbond_parallel_to_amber_mask(h_bonds)
-    # get the distances of the contacts
+    # get the distances of the hbonds
     distances = pt.pmap_mpi(pt.distance, inspected_traj, hbonds_distance_mask)
     # MPI broadcast the distances data to all the MPI processes
     distances = comm.bcast(distances, root=0)
@@ -479,15 +479,15 @@ def record_analysis(data, out_dir, current_trajectory_file, smp):
     return data
 
 
-def sort_contacts(contact_names, pattern):
+def sort_hbonds(contact_names, pattern):
     """
-    Get the order of the contacts on the first residue then on the second one.
+    Get the order of the hbonds on the first residue then on the second one.
 
-    :param contact_names: the contacts' identifiers.
+    :param contact_names: the hbonds' identifiers.
     :type contact_names: KeysView[Union[str, Any]]
-    :param pattern: the pattern to extract the residues positions of the atoms contacts.
+    :param pattern: the pattern to extract the residues' positions of the atoms hbonds.
     :type pattern: re.pattern
-    :return: the ordered list of contacts.
+    :return: the ordered list of hbonds.
     :rtype: list
     """
     tmp = {}
@@ -516,7 +516,7 @@ def sort_contacts(contact_names, pattern):
 
 def filter_hbonds(analysis_data, pattern):
     """
-    Filter out the hydrogen contacts' that belong to the same residue.
+    Filter out the hydrogen bonds' that belong to the same residue.
 
     :param analysis_data: the whole analysis data
     :type analysis_data: dict
@@ -530,50 +530,50 @@ def filter_hbonds(analysis_data, pattern):
                      f"{'ies' if len(analysis_data['trajectory files processed']) > 1 else 'y'} file"
                      f"{'s' if len(analysis_data['trajectory files processed']) > 1 else ''} with "
                      f"{len(analysis_data['H bonds'])} hydrogen bonds:")
-    intra_residue_contacts = 0
-    inter_residue_contacts_failed_thr = 0
+    intra_residue_hbonds = 0
+    inter_residue_hbonds_failed_thr = 0
     data = {}
     for donor_acceptor, distances in analysis_data["H bonds"].items():
         match = pattern.search(donor_acceptor)
         if match:
             if match.group(2) == match.group(5):
-                intra_residue_contacts += 1
+                intra_residue_hbonds += 1
                 if comm.rank == 0:
                     logging.debug(f"\t[REJECTED INTRA] {donor_acceptor}: H bond between the atoms of the same residue.")
             else:
-                # retrieve only the contacts < to the max atoms threshold and having a percentage of
+                # retrieve only the hbonds < to the max atoms threshold and having a percentage of
                 # frames >= percentage threshold in the selected frames
-                pct_contacts = len(distances) / analysis_data["frames"] * 100
-                if pct_contacts >= analysis_data["parameters"]["proportion contacts"]:
-                    # get the median of all the distances for two atoms contacts
+                pct_hbonds = len(distances) / analysis_data["frames"] * 100
+                if pct_hbonds >= analysis_data["parameters"]["proportion hbonds"]:
+                    # get the median of all the distances for two atoms hbonds
                     data[donor_acceptor] = statistics.median(distances)
                     if comm.rank == 0:
                         logging.debug(f"\t[VALID {len(data)}] {donor_acceptor}: median atoms distance "
                                       f"{round(data[donor_acceptor], 2)} \u212B, proportion of valid frames "
-                                      f"{pct_contacts:.1f}% ({len(distances)}/{analysis_data['frames']} frames with H "
+                                      f"{pct_hbonds:.1f}% ({len(distances)}/{analysis_data['frames']} frames with H "
                                       f"bonds).")
                 else:
-                    inter_residue_contacts_failed_thr += 1
+                    inter_residue_hbonds_failed_thr += 1
                     if comm.rank == 0:
                         logging.debug(f"\t[REJECTED PERCENTAGE] {donor_acceptor}: frames with H bonds "
-                                      f"{pct_contacts:.1f}% < {analysis_data['parameters']['proportion contacts']:.1f}%"
+                                      f"{pct_hbonds:.1f}% < {analysis_data['parameters']['proportion hbonds']:.1f}%"
                                       f" threshold ({len(distances)}/{analysis_data['frames']} frames with H bonds).")
         else:
             raise Exception(f"no match for pattern '{pattern.pattern}' in donor/acceptor '{donor_acceptor}'")
-    nb_used_contacts = len(analysis_data["H bonds"]) - intra_residue_contacts - inter_residue_contacts_failed_thr
+    nb_used_hbonds = len(analysis_data["H bonds"]) - intra_residue_hbonds - inter_residue_hbonds_failed_thr
     if comm.rank == 0:
-        logging.info(f"\t{intra_residue_contacts}/{len(analysis_data['H bonds'])} hydrogen bonds with intra residues "
-                     f"atoms contacts discarded.")
-        logging.info(f"\t{inter_residue_contacts_failed_thr}/{len(analysis_data['H bonds'])} hydrogen bonds with inter "
-                     f"residues atoms contacts discarded with contacts frames proportion under the threshold of "
-                     f"{analysis_data['parameters']['proportion contacts']:.1f}%.")
-    if nb_used_contacts == 0:
+        logging.info(f"\t{intra_residue_hbonds}/{len(analysis_data['H bonds'])} hydrogen bonds with intra residues "
+                     f"atoms hbonds discarded.")
+        logging.info(f"\t{inter_residue_hbonds_failed_thr}/{len(analysis_data['H bonds'])} hydrogen bonds with inter "
+                     f"residues atoms hydrogen bond discarded with hydrogen bond frames proportion under the threshold of "
+                     f"{analysis_data['parameters']['proportion hbonds']:.1f}%.")
+    if nb_used_hbonds == 0:
         if comm.rank == 0:
-            logging.error(f"\t{nb_used_contacts} inter residues atoms contacts remaining, analysis stopped.")
+            logging.error(f"\t{nb_used_hbonds} inter residues atoms hydrogen bonds remaining, analysis stopped.")
             sys.exit(1)
     if comm.rank == 0:
-        logging.info(f"\t{nb_used_contacts} inter residues atoms contacts used.")
-    ordered_columns = sort_contacts(data, pattern)
+        logging.info(f"\t{nb_used_hbonds} inter residues atoms hydrogen bonds used.")
+    ordered_columns = sort_hbonds(data, pattern)
     tmp_df = pd.DataFrame(data, index=[0])
     tmp_df = tmp_df[ordered_columns]
     df = tmp_df.transpose()
@@ -582,11 +582,11 @@ def filter_hbonds(analysis_data, pattern):
     return df
 
 
-def contacts_csv(df, out_dir, smp, pattern):
+def hbonds_csv(df, out_dir, smp, pattern):
     """
-    Get the median distances for the contacts in the molecular dynamics.
+    Get the median distances for the hydrogen bonds in the molecular dynamics.
 
-    :param df: the contacts dataframe.
+    :param df: the hbonds dataframe.
     :type df: pd.DataFrame
     :param out_dir: the directory output path.
     :type out_dir: str
@@ -594,7 +594,7 @@ def contacts_csv(df, out_dir, smp, pattern):
     :type smp: str
     :param pattern: the donor/acceptor pattern.
     :type pattern: re.pattern
-    :return: the dataframe of the contacts' statistics.
+    :return: the dataframe of the hbonds' statistics.
     :rtype: pandas.DataFrame
     """
     data = {"contact": [],
@@ -619,13 +619,13 @@ def contacts_csv(df, out_dir, smp, pattern):
             data["acceptor position"].append(f"no match with {pattern.pattern}")
             data["acceptor_residue"].append(f"no match with {pattern.pattern}")
         data["median distance"].append(contact["median distances"])
-    contacts_stat = pd.DataFrame(data)
-    out_path = os.path.join(out_dir, f"contacts_by_residue_{smp.replace(' ', '_')}.csv")
-    contacts_stat.to_csv(out_path, index=False)
+    hbonds_stat = pd.DataFrame(data)
+    out_path = os.path.join(out_dir, f"hbonds_by_residue_{smp.replace(' ', '_')}.csv")
+    hbonds_stat.to_csv(out_path, index=False)
     if comm.rank == 0:
         logging.info(f"Contacts by residue CSV file saved: {os.path.abspath(out_path)}")
 
-    return contacts_stat
+    return hbonds_stat
 
 
 if __name__ == "__main__":
@@ -644,11 +644,11 @@ if __name__ == "__main__":
     An hydrogen bond is defined as A-HD, where A is the acceptor heavy atom, H is the hydrogen and D is the donor heavy
     atom. An hydrogen bond is formed when A to D distance < distance cutoff and A-H-D angle > angle cutoff.
     A contact is valid if the number of frames (defined by the user with --frames or on the whole data) where a contact
-    is produced between 2 atoms is greater or equal to the proportion threshold of contacts.
+    is produced between 2 atoms is greater or equal to the proportion threshold of hydrogen bonds.
 
     The hydrogen bonds are represented as 2 CSV files:
-        - the median of the frames contacts.
-        - the contacts median distance by residue.
+        - the median of the frames hydrogen bonds.
+        - the hydrogen bonds median distance by residue.
     """
     parser = argparse.ArgumentParser(description=descr, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-o", "--out", required=True, type=str, help="the path to the output directory.")
@@ -663,7 +663,7 @@ if __name__ == "__main__":
                              "Multiple frames selections can be performed with comma separators, i.e: "
                              "'<TRAJ_FILE_1>:100-1000,<TRAJ_FILE_2>:1-500'. If a '*' is used as '<TRAJ_FILE_1>:100-*', "
                              "the used frames will be the 100th until the end frame.")
-    parser.add_argument("-d", "--distance-contacts", required=False, type=restricted_positive, default=3.0,
+    parser.add_argument("-d", "--distance-hbonds", required=False, type=restricted_positive, default=3.0,
                         help="An hydrogen bond is defined as A-HD, where A is acceptor heavy atom, H is hydrogen, D is "
                              "donor heavy atom. An hydrogen bond is formed when A to D distance < distance. Default is "
                              "3.0 Angstroms.")
@@ -671,7 +671,7 @@ if __name__ == "__main__":
                         help="Hydrogen bond is defined as A-HD, where A is acceptor heavy atom, H is hydrogen, D is "
                              "donor heavy atom. One condition to form an hydrogen bond is A-H-D angle > angle cut-off. "
                              "Default is 135 degrees.")
-    parser.add_argument("-p", "--proportion-contacts", required=False, type=restricted_float, default=20.0,
+    parser.add_argument("-p", "--proportion-hbonds", required=False, type=restricted_float, default=20.0,
                         help="the minimal percentage of frames which make contact between 2 atoms of different "
                              "residues in the selected frame of the molecular dynamics simulation, default is 20%%.")
     parser.add_argument("-r", "--resume", required=False, type=str,
@@ -702,9 +702,9 @@ if __name__ == "__main__":
 
         logging.info(f"version: {__version__}")
         logging.info(f"CMD: {' '.join(sys.argv)}")
-        logging.info(f"Atoms maximal contacts distance threshold: {args.distance_contacts:>7} \u212B")
+        logging.info(f"Atoms maximal hydrogen bonds distance threshold: {args.distance_hbonds:>7} \u212B")
         logging.info(f"Angle minimal cut-off: {args.angle_cutoff:>27}°")
-        logging.info(f"Minimal frames proportion with atoms contacts: {args.proportion_contacts:.1f}%")
+        logging.info(f"Minimal frames proportion with atoms hydrogen bonds: {args.proportion_hbonds:.1f}%")
         logging.info(f"Molecular Dynamics duration: {args.nanoseconds:>19} ns")
 
     frames_selection = None
@@ -718,8 +718,8 @@ if __name__ == "__main__":
     traj_files = None
     try:
         data_traj, skipped_traj = resume_or_initialize_analysis(args.inputs, args.topology, args.sample,
-                                                                args.distance_contacts, args.angle_cutoff,
-                                                                args.proportion_contacts, args.nanoseconds,
+                                                                args.distance_hbonds, args.angle_cutoff,
+                                                                args.proportion_hbonds, args.nanoseconds,
                                                                 args.resume, frames_selection)
         traj_files = remove_processed_trajectories(args.inputs, skipped_traj, args.resume)
     except KeyError as exc:
@@ -746,7 +746,7 @@ if __name__ == "__main__":
             sys.exit(1)
 
         # find the Hydrogen bonds
-        data_traj = hydrogen_bonds(trajectory, data_traj, args.distance_contacts, args.angle_cutoff)
+        data_traj = hydrogen_bonds(trajectory, data_traj, args.distance_hbonds, args.angle_cutoff)
 
         # pickle the analysis
         record_analysis(data_traj, args.out, traj_file, args.sample)
@@ -759,8 +759,8 @@ if __name__ == "__main__":
     except Exception as exc:
         logging.error(exc, exc_info=True)
         sys.exit(1)
-    # write the CSV for the contacts
-    stats = contacts_csv(filtered_hydrogen_bonds, args.out, args.sample, pattern_donor_acceptor)
+    # write the CSV for the hbonds
+    stats = hbonds_csv(filtered_hydrogen_bonds, args.out, args.sample, pattern_donor_acceptor)
 
     if comm.rank == 0:
         logging.info(f"{len(data_traj['trajectory files processed'])} processed trajectory files: "
